@@ -16,24 +16,23 @@ class LoggerTest extends TestCase
 {
     public function testLoggerConfig(): void
     {
-
         $cloudwatch_config = [
             'driver' => 'custom',
-            'via' => CloudWatchLoggerFactory::class,
-            'aws' => [
-                'region' => 'us-east-1',
-                'version' => 'latest',
+            'via'    => CloudWatchLoggerFactory::class,
+            'aws'    => [
+                'region'      => 'us-east-1',
+                'version'     => 'latest',
                 'credentials' => [
-                    'key' => 'AWS_ACCESS_KEY_ID',
+                    'key'    => 'AWS_ACCESS_KEY_ID',
                     'secret' => 'AWS_SECRET_ACCESS_KEY',
                 ],
             ],
-            'name' => 'CLOUDWATCH_LOG_NAME',
-            'group' => 'CLOUDWATCH_LOG_GROUP_NAME',
-            'stream' => 'CLOUDWATCH_LOG_STREAM',
+            'name'      => 'CLOUDWATCH_LOG_NAME',
+            'group'     => 'CLOUDWATCH_LOG_GROUP_NAME',
+            'stream'    => 'CLOUDWATCH_LOG_STREAM',
             'retention' => 7,
-            'level' => Level::Error,
-            'formatter' => JsonFormatter::class
+            'level'     => Level::Error,
+            'formatter' => JsonFormatter::class,
         ];
 
         $config = Mockery::mock(Repository::class);
@@ -84,21 +83,21 @@ class LoggerTest extends TestCase
     {
         $cloudwatch_config = [
             'driver' => 'custom',
-            'via' => CloudWatchLoggerFactory::class,
-            'aws' => [
-                'region' => 'us-east-1',
-                'version' => 'latest',
+            'via'    => CloudWatchLoggerFactory::class,
+            'aws'    => [
+                'region'      => 'us-east-1',
+                'version'     => 'latest',
                 'credentials' => [
-                    'key' => 'AWS_ACCESS_KEY_ID',
+                    'key'    => 'AWS_ACCESS_KEY_ID',
                     'secret' => 'AWS_SECRET_ACCESS_KEY',
                 ],
             ],
-            'name' => 'CLOUDWATCH_LOG_NAME',
-            'group' => 'CLOUDWATCH_LOG_GROUP_NAME',
-            'stream' => 'CLOUDWATCH_LOG_STREAM',
+            'name'      => 'CLOUDWATCH_LOG_NAME',
+            'group'     => 'CLOUDWATCH_LOG_GROUP_NAME',
+            'stream'    => 'CLOUDWATCH_LOG_STREAM',
             'retention' => 7,
-            'level' => Level::Error,
-            'formatter' => 'InvalidFormatter'
+            'level'     => Level::Error,
+            'formatter' => 'InvalidFormatter',
         ];
 
         $config = Mockery::mock(Repository::class);
@@ -119,7 +118,6 @@ class LoggerTest extends TestCase
             ->once()
             ->with('config')
             ->andReturn($config);
-
 
         $this->expectException(IncompleteCloudWatchConfig::class);
         $logger_factory = new CloudWatchLoggerFactory($app);

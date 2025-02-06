@@ -11,6 +11,7 @@ use Monolog\Formatter\LineFormatter;
 use Monolog\Level;
 use Monolog\Logger;
 use PhpNexus\Cwh\Handler\CloudWatch;
+
 use function is_callable;
 use function is_string;
 
@@ -25,8 +26,10 @@ class CloudWatchLoggerFactory
 
     /**
      * @param array $config
-     * @return Logger
+     *
      * @throws Exception
+     *
+     * @return Logger
      */
     public function __invoke(array $config): Logger
     {
@@ -57,9 +60,10 @@ class CloudWatchLoggerFactory
 
     /**
      * @param array $configs
-     * @return FormatterInterface
      *
      * @throws IncompleteCloudWatchConfig
+     *
+     * @return FormatterInterface
      */
     private function resolveFormatter(array $configs): FormatterInterface
     {

@@ -54,5 +54,4 @@ class CloudWatchLoggerServiceProvider extends ServiceProvider implements Deferra
             return new CloudWatchLoggerFactory($this->app);
         });
     }
-
 }
