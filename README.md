@@ -1,10 +1,10 @@
 # Laravel Logger for AWS CloudWatch
 
-[![codecov](https://codecov.io/github/aporat/laravel-filter-var/graph/badge.svg?token=VPCAXPZUBP)](https://codecov.io/github/aporat/laravel-filter-var)
-[![StyleCI](https://github.styleci.io/repos/288753189/shield?branch=master)](https://github.styleci.io/repos/288753189?branch=master)
-[![Latest Version](http://img.shields.io/packagist/v/aporat/laravel-filter-var.svg?style=flat-square&logo=composer)](https://packagist.org/packages/aporat/laravel-filter-var)
-[![Latest Dev Version](https://img.shields.io/packagist/vpre/aporat/laravel-filter-var.svg?style=flat-square&logo=composer)](https://packagist.org/packages/aporat/laravel-filter-var#dev-develop)
-[![Monthly Downloads](https://img.shields.io/packagist/dm/aporat/laravel-filter-var.svg?style=flat-square&logo=composer)](https://packagist.org/packages/aporat/laravel-filter-var)
+[![codecov](https://codecov.io/gh/aporat/laravel-cloudwatch-logger/graph/badge.svg?token=0WHTTGMINF)](https://codecov.io/gh/aporat/laravel-cloudwatch-logger)
+[![StyleCI](https://github.styleci.io/repos/928392109/shield?branch=master)](https://github.styleci.io/repos/928392109?branch=master)
+[![Latest Version](http://img.shields.io/packagist/v/aporat/laravel-cloudwatch-logger.svg?style=flat-square&logo=composer)](https://packagist.org/packages/aporat/laravel-cloudwatch-logger)
+[![Latest Dev Version](https://img.shields.io/packagist/vpre/aporat/laravel-cloudwatch-logger.svg?style=flat-square&logo=composer)](https://packagist.org/packages/aporat/laravel-cloudwatch-logger#dev-develop)
+[![Monthly Downloads](https://img.shields.io/packagist/dm/aporat/laravel-cloudwatch-logger.svg?style=flat-square&logo=composer)](https://packagist.org/packages/aporat/laravel-cloudwatch-logger)
 
 
 Laravel logger factory for AWS Cloudwatch Logs service.
