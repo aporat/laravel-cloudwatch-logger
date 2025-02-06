@@ -46,7 +46,7 @@ use Monolog\Level;
         'stream' => env('CLOUDWATCH_LOG_STREAM', 'default'),
         'name' => env('CLOUDWATCH_LOG_NAME', ''),
         'retention' => env('CLOUDWATCH_LOG_RETENTION', 7),
-        'level' => Level::Error,
+        'level' => env('LOG_LEVEL', Level::Error),
         'formatter' => function ($configs) {
             return new LineFormatter(
                 '%channel%: %level_name%: %message% %context% %extra%',
