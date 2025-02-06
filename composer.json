@@ -1,0 +1,57 @@
+{
+    "name": "aporat/laravel-cloudwatch-logger",
+    "description": "Laravel logger for AWS Cloudwatch Log service.",
+    "type": "library",
+    "authors": [
+        {
+            "name": "aporat28",
+            "email": "aporat28@gmail.com",
+            "homepage": "https://github.com/aporat"
+        }
+    ],
+    "keywords": [
+        "cloudwatch",
+        "log"
+    ],
+    "homepage": "https://github.com/aporat/laravel-cloudwatch-logger",
+    "license": "MIT",
+    "require": {
+        "php": "^8.2",
+        "illuminate/support": "^10|^11",
+        "phpnexus/cwh": "^2.0|^3.0"
+    },
+    "require-dev": {
+        "friendsofphp/php-cs-fixer": "^3.14",
+        "phpunit/phpunit": "^11.0",
+        "mockery/mockery": "^1.2"
+    },
+    "config": {
+        "sort-packages": true
+    },
+    "autoload": {
+        "psr-4": {
+            "Aporat\\CloudWatchLogger\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Aporat\\CloudWatchLogger\\Tests\\": "tests/"
+        }
+    },
+    "support": {
+        "issues": "https://github.com/aporat/laravel-cloudwatch-logger/issues"
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Aporat\\CloudWatchLogger\\Laravel\\CloudWatchLoggerServiceProvider"
+            ]
+        }
+    },
+    "scripts": {
+        "test": "phpunit --colors=always",
+        "test:ci": "phpunit --colors=always --coverage-text --coverage-clover=coverage.xml"
+    },
+    "minimum-stability": "dev",
+    "prefer-stable": true
+}
