@@ -17,7 +17,7 @@
     "license": "MIT",
     "require": {
         "php": "^8.2",
-        "illuminate/support": "^10|^11",
+        "laravel/framework": "^10|^11",
         "phpnexus/cwh": "^2.0|^3.0"
     },
     "require-dev": {

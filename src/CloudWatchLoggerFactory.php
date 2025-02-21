@@ -5,6 +5,7 @@ namespace Aporat\CloudWatchLogger;
 use Aporat\CloudWatchLogger\Exceptions\IncompleteCloudWatchConfig;
 use Aws\CloudWatchLogs\CloudWatchLogsClient;
 use Exception;
+use Illuminate\Contracts\Container\BindingResolutionException;
 use Illuminate\Contracts\Foundation\Application;
 use Monolog\Formatter\FormatterInterface;
 use Monolog\Formatter\LineFormatter;
@@ -12,80 +13,90 @@ use Monolog\Level;
 use Monolog\Logger;
 use PhpNexus\Cwh\Handler\CloudWatch;
 
-use function is_callable;
-use function is_string;
-
-class CloudWatchLoggerFactory
+final class CloudWatchLoggerFactory
 {
-    private Application $app;
+    /**
+     * @var Application|null The Laravel application instance
+     */
+    private ?Application $app;
 
-    public function __construct(Application $app = null)
+    /**
+     * Create a new CloudWatch logger factory instance
+     *
+     * @param Application|null $app The Laravel application instance (optional)
+     */
+    public function __construct(?Application $app = null)
     {
         $this->app = $app;
     }
 
     /**
-     * @param array $config
+     * Create a CloudWatch logger instance
      *
+     * @param array $config Configuration array for the logger
+     * @return Logger The configured Monolog logger instance
+     *
+     * @throws IncompleteCloudWatchConfig If formatter configuration is invalid
      * @throws Exception
-     *
-     * @return Logger
      */
     public function __invoke(array $config): Logger
     {
-        $aws = $config['aws'];
+        $client = new CloudWatchLogsClient($config['aws']);
         $tags = $config['tags'] ?? [];
         $name = $config['name'];
-
-        // AWS SDK Cloudwatch Logs Client
-        $client = new CloudWatchLogsClient($aws);
-
         $groupName = $config['group'];
         $streamName = $config['stream'];
         $retentionDays = $config['retention'];
-
         $batchSize = $config['batch_size'] ?? 10000;
         $level = $config['level'] ?? Level::Debug;
 
-        $handler = new CloudWatch($client, $groupName, $streamName, $retentionDays, $batchSize, $tags, $level);
+        $handler = new CloudWatch(
+            $client,
+            $groupName,
+            $streamName,
+            $retentionDays,
+            $batchSize,
+            $tags,
+            $level
+        );
 
         $logger = new Logger($name);
-
-        $formatter = $this->resolveFormatter($config);
-        $handler->setFormatter($formatter);
+        $handler->setFormatter($this->resolveFormatter($config));
         $logger->pushHandler($handler);
 
         return $logger;
     }
 
     /**
-     * @param array $configs
+     * Resolve the formatter for the CloudWatch logger
      *
-     * @throws IncompleteCloudWatchConfig
+     * @param array $config Configuration array containing formatter settings
+     * @return FormatterInterface The resolved formatter instance
      *
-     * @return FormatterInterface
+     * @throws IncompleteCloudWatchConfig If formatter configuration is invalid
+     * @throws BindingResolutionException
      */
-    private function resolveFormatter(array $configs): FormatterInterface
+    private function resolveFormatter(array $config): FormatterInterface
     {
-        if (!isset($configs['formatter'])) {
+        if (!isset($config['formatter'])) {
             return new LineFormatter(
-                '%channel%: %level_name%: %message% %context% %extra%',
-                null,
-                false,
-                true
+                format: '%channel%: %level_name%: %message% %context% %extra%',
+                dateFormat: null,
+                allowInlineLineBreaks: false,
+                ignoreEmptyContextAndExtra: true
             );
         }
 
-        $formatter = $configs['formatter'];
+        $formatter = $config['formatter'];
 
         if (is_string($formatter) && class_exists($formatter)) {
             return $this->app->make($formatter);
         }
 
         if (is_callable($formatter)) {
-            return $formatter($configs);
+            return $formatter($config);
         }
 
-        throw new IncompleteCloudWatchConfig('Formatter is missing for the logs');
+        throw new IncompleteCloudWatchConfig('Invalid formatter configuration for CloudWatch logs');
     }
 }

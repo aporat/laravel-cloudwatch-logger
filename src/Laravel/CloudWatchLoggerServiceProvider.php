@@ -9,33 +9,37 @@ use Illuminate\Support\ServiceProvider;
 class CloudWatchLoggerServiceProvider extends ServiceProvider implements DeferrableProvider
 {
     /**
-     * Register the service provider.
+     * Register services with the container
      *
      * @return void
      */
     public function register(): void
     {
-        $configPath = __DIR__.'/../../config/cloudwatch-logger.php';
-        $this->mergeConfigFrom($configPath, 'cloudwatch-logger');
+        $this->mergeConfigFrom(
+            __DIR__ . '/../../config/cloudwatch-logger.php',
+            'cloudwatch-logger'
+        );
     }
 
     /**
-     * Bootstrap the application events.
+     * Bootstrap any application services
      *
      * @return void
      */
     public function boot(): void
     {
-        $configPath = __DIR__.'/../../config/cloudwatch-logger.php';
-        $this->publishes([$configPath => $this->getConfigPath()], 'config');
+        $configPath = __DIR__ . '/../../config/cloudwatch-logger.php';
+        $this->publishes([
+            $configPath => $this->getConfigPath()
+        ], 'config');
 
         $this->registerLogger();
     }
 
     /**
-     * Get the config path.
+     * Get the path to the configuration file destination
      *
-     * @return string
+     * @return string The full path to the config file
      */
     protected function getConfigPath(): string
     {
@@ -43,15 +47,12 @@ class CloudWatchLoggerServiceProvider extends ServiceProvider implements Deferra
     }
 
     /**
-     * Register the logger provider.
+     * Register the CloudWatch logger factory with the application
      *
      * @return void
      */
-    public function registerLogger(): void
+    protected function registerLogger(): void
     {
-        // Register the main class to use with the facade
-        $this->app->bind(CloudWatchLoggerFactory::class, function () {
-            return new CloudWatchLoggerFactory($this->app);
-        });
+        $this->app->bind(CloudWatchLoggerFactory::class, fn() => new CloudWatchLoggerFactory($this->app));
     }
 }
