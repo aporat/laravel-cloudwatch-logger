@@ -21,7 +21,7 @@ final class CloudWatchLoggerFactory
     private ?Application $app;
 
     /**
-     * Create a new CloudWatch logger factory instance
+     * Create a new CloudWatch logger factory instance.
      *
      * @param Application|null $app The Laravel application instance (optional)
      */
@@ -31,13 +31,14 @@ final class CloudWatchLoggerFactory
     }
 
     /**
-     * Create a CloudWatch logger instance
+     * Create a CloudWatch logger instance.
      *
      * @param array $config Configuration array for the logger
-     * @return Logger The configured Monolog logger instance
      *
      * @throws IncompleteCloudWatchConfig If formatter configuration is invalid
      * @throws Exception
+     *
+     * @return Logger The configured Monolog logger instance
      */
     public function __invoke(array $config): Logger
     {
@@ -68,13 +69,14 @@ final class CloudWatchLoggerFactory
     }
 
     /**
-     * Resolve the formatter for the CloudWatch logger
+     * Resolve the formatter for the CloudWatch logger.
      *
      * @param array $config Configuration array containing formatter settings
-     * @return FormatterInterface The resolved formatter instance
      *
      * @throws IncompleteCloudWatchConfig If formatter configuration is invalid
      * @throws BindingResolutionException
+     *
+     * @return FormatterInterface The resolved formatter instance
      */
     private function resolveFormatter(array $config): FormatterInterface
     {
