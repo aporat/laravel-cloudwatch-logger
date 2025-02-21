@@ -9,35 +9,35 @@ use Illuminate\Support\ServiceProvider;
 class CloudWatchLoggerServiceProvider extends ServiceProvider implements DeferrableProvider
 {
     /**
-     * Register services with the container
+     * Register services with the container.
      *
      * @return void
      */
     public function register(): void
     {
         $this->mergeConfigFrom(
-            __DIR__ . '/../../config/cloudwatch-logger.php',
+            __DIR__.'/../../config/cloudwatch-logger.php',
             'cloudwatch-logger'
         );
     }
 
     /**
-     * Bootstrap any application services
+     * Bootstrap any application services.
      *
      * @return void
      */
     public function boot(): void
     {
-        $configPath = __DIR__ . '/../../config/cloudwatch-logger.php';
+        $configPath = __DIR__.'/../../config/cloudwatch-logger.php';
         $this->publishes([
-            $configPath => $this->getConfigPath()
+            $configPath => $this->getConfigPath(),
         ], 'config');
 
         $this->registerLogger();
     }
 
     /**
-     * Get the path to the configuration file destination
+     * Get the path to the configuration file destination.
      *
      * @return string The full path to the config file
      */
@@ -47,12 +47,12 @@ class CloudWatchLoggerServiceProvider extends ServiceProvider implements Deferra
     }
 
     /**
-     * Register the CloudWatch logger factory with the application
+     * Register the CloudWatch logger factory with the application.
      *
      * @return void
      */
     protected function registerLogger(): void
     {
-        $this->app->bind(CloudWatchLoggerFactory::class, fn() => new CloudWatchLoggerFactory($this->app));
+        $this->app->bind(CloudWatchLoggerFactory::class, fn () => new CloudWatchLoggerFactory($this->app));
     }
 }

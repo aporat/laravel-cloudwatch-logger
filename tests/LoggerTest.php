@@ -124,7 +124,7 @@ class LoggerTest extends TestCase
             Level::Error,
             'Test log message',
             ['user_id' => 123],
-            ['key' => 'value']
+            ['key'     => 'value']
         );
         $formatted = $formatter->format($record);
 
