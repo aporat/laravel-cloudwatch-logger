@@ -37,13 +37,13 @@ class CloudWatchLoggerServiceProviderTest extends TestCase
 
     public function test_publishes_configuration(): void
     {
-        $sourcePath = realpath(__DIR__ . '/../config/cloudwatch-logger.php');
+        $sourcePath = realpath(__DIR__.'/../config/cloudwatch-logger.php');
         $targetPath = $this->app->configPath('cloudwatch-logger.php');
 
         $this->artisan('vendor:publish', [
             '--provider' => CloudWatchLoggerServiceProvider::class,
-            '--tag' => 'config',
-            '--force' => true,
+            '--tag'      => 'config',
+            '--force'    => true,
         ]);
 
         $this->assertFileExists($targetPath, 'Config file should be published');

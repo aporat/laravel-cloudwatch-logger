@@ -42,8 +42,10 @@ final class CloudWatchLoggerFactory
      * Create a configured CloudWatch logger instance.
      *
      * @param array<string, mixed> $config Configuration array for CloudWatch logging
-     * @return Logger Configured Monolog logger instance
+     *
      * @throws IncompleteCloudWatchConfig If required config is missing or invalid
+     *
+     * @return Logger Configured Monolog logger instance
      */
     public function __invoke(array $config): Logger
     {
@@ -69,8 +71,10 @@ final class CloudWatchLoggerFactory
      * Resolve the formatter for CloudWatch logs based on configuration.
      *
      * @param array<string, mixed> $config Configuration array with optional formatter settings
-     * @return FormatterInterface Formatter instance for Monolog
+     *
      * @throws IncompleteCloudWatchConfig If formatter configuration is invalid
+     *
+     * @return FormatterInterface Formatter instance for Monolog
      */
     private function resolveFormatter(array $config): FormatterInterface
     {
@@ -89,6 +93,7 @@ final class CloudWatchLoggerFactory
             if (!$this->container) {
                 return new $formatter();
             }
+
             return $this->container->make($formatter);
         }
 
@@ -102,17 +107,20 @@ final class CloudWatchLoggerFactory
     /**
      * Validate and retrieve a required configuration value.
      *
-     * @param array<string, mixed> $config Configuration array
-     * @param string $key Config key to retrieve
-     * @param string $description Description of the key for error messaging
-     * @return mixed Config value
+     * @param array<string, mixed> $config      Configuration array
+     * @param string               $key         Config key to retrieve
+     * @param string               $description Description of the key for error messaging
+     *
      * @throws IncompleteCloudWatchConfig If the key is missing or empty
+     *
+     * @return mixed Config value
      */
     private function validateConfig(array $config, string $key, string $description): mixed
     {
         if (!isset($config[$key]) || empty($config[$key])) {
             throw new IncompleteCloudWatchConfig("Missing or invalid {$description} in CloudWatch configuration");
         }
+
         return $config[$key];
     }
 }
