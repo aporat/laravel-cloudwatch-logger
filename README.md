@@ -1,27 +1,53 @@
-# Laravel Logger for AWS CloudWatch
+# Laravel CloudWatch Logger
 
-[![codecov](https://codecov.io/gh/aporat/laravel-cloudwatch-logger/graph/badge.svg?token=0WHTTGMINF)](https://codecov.io/gh/aporat/laravel-cloudwatch-logger)
-[![StyleCI](https://github.styleci.io/repos/928392109/shield?branch=master)](https://github.styleci.io/repos/928392109?branch=master)
-[![Latest Version](http://img.shields.io/packagist/v/aporat/laravel-cloudwatch-logger.svg?style=flat-square&logo=composer)](https://packagist.org/packages/aporat/laravel-cloudwatch-logger)
+[![Latest Stable Version](https://img.shields.io/packagist/v/aporat/laravel-cloudwatch-logger.svg?style=flat-square&logo=composer)](https://packagist.org/packages/aporat/laravel-cloudwatch-logger)
 [![Latest Dev Version](https://img.shields.io/packagist/vpre/aporat/laravel-cloudwatch-logger.svg?style=flat-square&logo=composer)](https://packagist.org/packages/aporat/laravel-cloudwatch-logger#dev-develop)
 [![Monthly Downloads](https://img.shields.io/packagist/dm/aporat/laravel-cloudwatch-logger.svg?style=flat-square&logo=composer)](https://packagist.org/packages/aporat/laravel-cloudwatch-logger)
+[![Codecov](https://codecov.io/gh/aporat/laravel-cloudwatch-logger/graph/badge.svg?token=0WHTTGMINF)](https://codecov.io/gh/aporat/laravel-cloudwatch-logger)
+[![StyleCI](https://github.styleci.io/repos/928392109/shield?branch=master)](https://github.styleci.io/repos/928392109?branch=master)
+[![License](https://img.shields.io/packagist/l/aporat/laravel-cloudwatch-logger.svg?style=flat-square)](https://github.com/aporat/laravel-cloudwatch-logger/blob/master/LICENSE)
 
+A Laravel logging driver for seamless integration with AWS CloudWatch Logs.
 
-Laravel logger factory for AWS Cloudwatch Logs service.
+## Features
+- Custom Monolog channel for sending logs to CloudWatch.
+- Configurable AWS credentials, log group, stream, and retention period.
+- Support for custom log formatters (e.g., JSON, line format).
+- Compatible with Laravel’s native logging system via the `Log` facade.
+- Built-in configuration publishing for easy setup.
+
+## Requirements
+- **PHP**: 8.2 or higher
+- **Laravel**: 10.x or 11.x
+- **AWS SDK**: Provided via `phpnexus/cwh` dependency
 
 ## Installation
+Install the package via [Composer](https://getcomposer.org/):
 
-The filter-var service provider can be installed via [Composer](https://getcomposer.org/).
-
-```
+```bash
 composer require aporat/laravel-cloudwatch-logger
 ```
 
-## Usage
+The service provider (`CloudWatchLoggerServiceProvider`) is automatically registered via Laravel’s package discovery. If auto-discovery is disabled, add it to `config/app.php`:
 
-Config parameters for logging are defined at `config/logging.php`.
+```php
+'providers' => [
+    // ...
+    Aporat\CloudWatchLogger\Laravel\CloudWatchLoggerServiceProvider::class,
+],
+```
 
-You need to add new channel as `cloudwatch` and copy params inside `config/config.php` into it.
+Publish the configuration file:
+
+```bash
+php artisan vendor:publish --provider="Aporat\CloudWatchLogger\Laravel\CloudWatchLoggerServiceProvider" --tag="config"
+```
+
+This copies `cloudwatch-logger.php` to your `config/` directory.
+
+## Configuration
+### Step 1: Add the CloudWatch Channel
+Merge the CloudWatch configuration into `config/logging.php` under the `channels` key:
 
 ```php
 use Aporat\CloudWatchLogger\CloudWatchLoggerFactory;
@@ -29,54 +55,112 @@ use Monolog\Formatter\LineFormatter;
 use Monolog\Level;
 
 'channels' => [
-    ...
-
+    // Other channels...
     'cloudwatch' => [
         'driver' => 'custom',
-        'via' => LaravelCloudWatchLoggerFactory::class,
+        'via' => Aporat\CloudWatchLogger\CloudWatchLoggerFactory::class,
         'aws' => [
             'region' => env('AWS_DEFAULT_REGION', 'us-east-1'),
-            'version' => 'latest',
+            'version' => env('AWS_VERSION', 'latest'),
             'credentials' => [
-                'key' => env('AWS_ACCESS_KEY_ID'),
-                'secret' => env('AWS_SECRET_ACCESS_KEY'),
+                'key' => env('AWS_ACCESS_KEY_ID', ''),
+                'secret' => env('AWS_SECRET_ACCESS_KEY', ''),
             ],
         ],
-        'group' => env('CLOUDWATCH_LOG_GROUP_NAME', env('APP_NAME') . '-' . env('APP_ENV')),
+        'group' => env('CLOUDWATCH_LOG_GROUP_NAME', env('APP_NAME', 'laravel') . '-' . env('APP_ENV', 'production')),
         'stream' => env('CLOUDWATCH_LOG_STREAM', 'default'),
-        'name' => env('CLOUDWATCH_LOG_NAME', ''),
-        'retention' => env('CLOUDWATCH_LOG_RETENTION', 7),
-        'level' => env('LOG_LEVEL', Level::Error),
-        'formatter' => function ($configs) {
+        'name' => env('CLOUDWATCH_LOG_NAME', env('APP_NAME', 'laravel')),
+        'retention' => env('CLOUDWATCH_LOG_RETENTION', 14),
+        'level' => env('CLOUDWATCH_LOG_LEVEL', Level::Error->value),
+        'batch_size' => env('CLOUDWATCH_LOG_BATCH_SIZE', 10000),
+        'formatter' => function (array $config) {
             return new LineFormatter(
-                '%channel%: %level_name%: %message% %context% %extra%',
-                null,
-                false,
-                true
+                format: '%channel%: %level_name%: %message% %context% %extra%',
+                dateFormat: null,
+                allowInlineLineBreaks: false,
+                ignoreEmptyContextAndExtra: true
             );
         },
     ],
 ],
 ```
 
-Change the log channel inside `.env` file with `cloudwatch`.
+### Step 2: Set the Log Channel
+Update your `.env` file to use the `cloudwatch` channel:
 
-```dotenv
+```
 LOG_CHANNEL=cloudwatch
 ```
 
-You can use Laravel default `Log` class to send your logs to CloudWatch.
+### Step 3: Configure AWS Credentials
+Add your AWS credentials and optional CloudWatch settings to `.env`:
+
+```
+AWS_ACCESS_KEY_ID=your-aws-key
+AWS_SECRET_ACCESS_KEY=your-aws-secret
+AWS_DEFAULT_REGION=us-east-1
+CLOUDWATCH_LOG_GROUP_NAME=myapp-prod
+CLOUDWATCH_LOG_STREAM=app-logs
+CLOUDWATCH_LOG_NAME=myapp
+CLOUDWATCH_LOG_RETENTION=14
+CLOUDWATCH_LOG_LEVEL=error
+CLOUDWATCH_LOG_BATCH_SIZE=10000
+```
+
+## Usage
+Log messages using Laravel’s `Log` facade, and they’ll be sent to CloudWatch:
 
 ```php
-\Illuminate\Support\Facades\Log::info('user logged in successfully', [
+use Illuminate\Support\Facades\Log;
+
+Log::info('User logged in successfully', [
     'id' => 1,
     'username' => 'JohnDoe',
     'ip' => '127.0.0.1',
 ]);
 ```
 
-### Testing
+### Custom Formatter
+Override the default formatter in `config/logging.php`:
+
+```php
+'formatter' => Monolog\Formatter\JsonFormatter::class,
+```
+
+Or use a custom callable:
+
+```php
+'formatter' => function (array $config) {
+    return new Monolog\Formatter\JsonFormatter();
+},
+```
+
+## Testing
+Run the test suite:
 
 ```bash
 composer test
 ```
+
+Generate coverage reports:
+
+```bash
+composer test-coverage
+```
+
+## Contributing
+Contributions are welcome! Please:
+1. Fork the repository.
+2. Create a feature branch (`git checkout -b feature/new-feature`).
+3. Commit your changes (`git commit -m "Add new feature"`).
+4. Push to the branch (`git push origin feature/new-feature`).
+5. Open a pull request.
+
+Report issues at [GitHub Issues](https://github.com/aporat/laravel-cloudwatch-logger/issues).
+
+## License
+This package is licensed under the [MIT License](LICENSE). See the [License File](LICENSE) for details.
+
+## Support
+- **Issues**: [GitHub Issues](https://github.com/aporat/laravel-cloudwatch-logger/issues)
+- **Source**: [GitHub Repository](https://github.com/aporat/laravel-cloudwatch-logger)

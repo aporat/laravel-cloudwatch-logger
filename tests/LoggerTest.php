@@ -15,107 +15,63 @@ use PHPUnit\Framework\TestCase;
 
 class LoggerTest extends TestCase
 {
-    public function testLoggerConfig(): void
-    {
-        $cloudwatch_config = [
-            'driver'     => 'custom',
-            'via'        => CloudWatchLoggerFactory::class,
-            'aws'        => [
-                'region'      => 'us-east-1',
-                'version'     => 'latest',
-                'credentials' => [
-                    'key'    => 'AWS_ACCESS_KEY_ID',
-                    'secret' => 'AWS_SECRET_ACCESS_KEY',
-                ],
-            ],
-            'name'       => 'CLOUDWATCH_LOG_NAME',
-            'group'      => 'CLOUDWATCH_LOG_GROUP_NAME',
-            'stream'     => 'CLOUDWATCH_LOG_STREAM',
-            'retention'  => 7,
-            'level'      => Level::Error,
-            'formatter'  => JsonFormatter::class,
-        ];
+    private CloudWatchLoggerFactory $factory;
+    private Application $app;
 
-        $app = Mockery::mock(Application::class);
-        $app->shouldReceive('make')
+    protected function setUp(): void
+    {
+        parent::setUp();
+        $this->app = Mockery::mock(Application::class);
+        $this->factory = new CloudWatchLoggerFactory($this->app);
+    }
+
+    public function test_creates_logger_with_json_formatter(): void
+    {
+        $config = $this->getBaseConfig(['formatter' => JsonFormatter::class]);
+        $this->app->shouldReceive('make')
             ->once()
             ->with(JsonFormatter::class)
             ->andReturn(Mockery::mock(JsonFormatter::class));
 
-        $logger_factory = new CloudWatchLoggerFactory($app);
-        $logger = $logger_factory($cloudwatch_config);
+        $logger = $this->factory->__invoke($config); // Explicitly call __invoke
 
-        $this->assertInstanceOf(CloudWatchLoggerFactory::class, $logger_factory);
         $this->assertInstanceOf(Logger::class, $logger);
-        $this->assertNotEmpty($logger->getHandlers());
+        $this->assertCount(1, $logger->getHandlers());
         $this->assertInstanceOf(JsonFormatter::class, $logger->getHandlers()[0]->getFormatter());
     }
 
-    public function testInvalidFormatterWillThrowException(): void
+    public function test_throws_exception_for_invalid_formatter(): void
     {
-        $cloudwatch_config = [
-            'driver'     => 'custom',
-            'via'        => CloudWatchLoggerFactory::class,
-            'aws'        => [
-                'region'      => 'us-east-1',
-                'version'     => 'latest',
-                'credentials' => [
-                    'key'    => 'AWS_ACCESS_KEY_ID',
-                    'secret' => 'AWS_SECRET_ACCESS_KEY',
-                ],
-            ],
-            'name'       => 'CLOUDWATCH_LOG_NAME',
-            'group'      => 'CLOUDWATCH_LOG_GROUP_NAME',
-            'stream'     => 'CLOUDWATCH_LOG_STREAM',
-            'retention'  => 7,
-            'level'      => Level::Error,
-            'formatter'  => 'InvalidFormatter',
-        ];
-
-        $app = Mockery::mock(Application::class);
-
-        $logger_factory = new CloudWatchLoggerFactory($app);
+        $config = $this->getBaseConfig(['formatter' => 'InvalidFormatter']);
 
         $this->expectException(IncompleteCloudWatchConfig::class);
-        $logger_factory($cloudwatch_config);
+        $this->expectExceptionMessage('Invalid formatter configuration for CloudWatch logs');
+
+        $this->factory->__invoke($config); // Explicitly call __invoke
     }
 
-    public function testLineFormatterConfig(): void
+    /**
+     * @throws \Exception
+     */
+    public function test_creates_logger_with_line_formatter_callable(): void
     {
-        $cloudwatch_config = [
-            'driver'     => 'custom',
-            'via'        => CloudWatchLoggerFactory::class,
-            'aws'        => [
-                'region'      => 'us-east-1',
-                'version'     => 'latest',
-                'credentials' => [
-                    'key'    => 'AWS_ACCESS_KEY_ID',
-                    'secret' => 'AWS_SECRET_ACCESS_KEY',
-                ],
-            ],
-            'group'      => 'myapp-testing',
-            'stream'     => 'default',
-            'name'       => '',
-            'retention'  => 7,
-            'level'      => Level::Error,
-            'formatter'  => function ($configs) {
-                return new LineFormatter(
-                    '%channel%: %level_name%: %message% %context% %extra%',
-                    null,
-                    false,
-                    true
-                );
-            },
-        ];
+        $config = $this->getBaseConfig([
+            'group' => 'myapp-testing',
+            'stream' => 'default',
+            'name' => 'default',
+            'formatter' => fn (array $configs) => new LineFormatter(
+                '%channel%: %level_name%: %message% %context% %extra%',
+                null,
+                false,
+                true
+            ),
+        ]);
 
-        $app = Mockery::mock(Application::class);
-
-        $logger_factory = new CloudWatchLoggerFactory($app);
-        $logger = $logger_factory($cloudwatch_config);
+        $logger = $this->factory->__invoke($config); // Explicitly call __invoke
+        $formatter = $logger->getHandlers()[0]->getFormatter();
 
         $this->assertInstanceOf(Logger::class, $logger);
-        $this->assertNotEmpty($logger->getHandlers());
-        $formatter = $logger->getHandlers()[0]->getFormatter();
+        $this->assertCount(1, $logger->getHandlers());
         $this->assertInstanceOf(LineFormatter::class, $formatter);
 
         $record = new LogRecord(
@@ -124,16 +80,43 @@ class LoggerTest extends TestCase
             Level::Error,
             'Test log message',
             ['user_id' => 123],
-            ['key'     => 'value']
+            ['key' => 'value']
         );
         $formatted = $formatter->format($record);
 
-        $expected = ': ERROR: Test log message {"user_id":123} {"key":"value"}';
-        $this->assertEquals($expected, $formatted);
+        $this->assertEquals(': ERROR: Test log message {"user_id":123} {"key":"value"}', $formatted);
     }
 
     protected function tearDown(): void
     {
         Mockery::close();
+        parent::tearDown();
+    }
+
+    /**
+     * Generate a base CloudWatch configuration with optional overrides.
+     *
+     * @param array<string, mixed> $overrides Custom config values to merge
+     * @return array<string, mixed> Complete config array
+     */
+    private function getBaseConfig(array $overrides = []): array
+    {
+        return array_merge([
+            'driver' => 'custom',
+            'via' => CloudWatchLoggerFactory::class,
+            'aws' => [
+                'region' => 'us-east-1',
+                'version' => 'latest',
+                'credentials' => [
+                    'key' => 'AWS_ACCESS_KEY_ID',
+                    'secret' => 'AWS_SECRET_ACCESS_KEY',
+                ],
+            ],
+            'name' => 'CLOUDWATCH_LOG_NAME',
+            'group' => 'CLOUDWATCH_LOG_GROUP_NAME',
+            'stream' => 'CLOUDWATCH_LOG_STREAM',
+            'retention' => 7,
+            'level' => Level::Error,
+        ], $overrides);
     }
 }
