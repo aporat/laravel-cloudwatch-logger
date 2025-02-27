@@ -29,6 +29,7 @@
     },
     "require-dev": {
         "orchestra/testbench": "^8.0 || ^9.0",
+        "laravel/pint": "^1.21",
         "phpunit/phpunit": "^11.0",
         "mockery/mockery": "^1.6",
         "friendsofphp/php-cs-fixer": "^3.64"

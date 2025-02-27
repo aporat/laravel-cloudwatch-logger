@@ -42,8 +42,8 @@ class CloudWatchLoggerServiceProviderTest extends TestCase
 
         $this->artisan('vendor:publish', [
             '--provider' => CloudWatchLoggerServiceProvider::class,
-            '--tag'      => 'config',
-            '--force'    => true,
+            '--tag' => 'config',
+            '--force' => true,
         ]);
 
         $this->assertFileExists($targetPath, 'Config file should be published');
