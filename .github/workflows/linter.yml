@@ -1,0 +1,23 @@
+name: Linter
+
+on:
+  push:
+  release:
+    types:
+      - published
+  pull_request:
+    paths:
+      - '**.php'
+
+jobs:
+  pint:
+    name: pint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run Pint
+        uses: aglipanci/laravel-pint-action@2.4
+        with:
+          preset: laravel
