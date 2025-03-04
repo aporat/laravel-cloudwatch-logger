@@ -23,14 +23,14 @@
     "require": {
         "php": "^8.2",
         "ext-json": "*",
-        "illuminate/support": "^10.0 || ^11.0",
-        "illuminate/log": "^10.0 || ^11.0",
+        "illuminate/support": "^10.0 || ^11.0 || ^12.0",
+        "illuminate/log": "^10.0 || ^11.0 || ^12.0",
         "phpnexus/cwh": "^2.0 || ^3.0"
     },
     "require-dev": {
-        "orchestra/testbench": "^8.0 || ^9.0",
+        "orchestra/testbench": "^8.0 || ^9.0 || ^10.0",
         "laravel/pint": "^1.21",
-        "phpunit/phpunit": "^11.0",
+        "phpunit/phpunit": "^11.0 || ^12.0",
         "mockery/mockery": "^1.6",
         "friendsofphp/php-cs-fixer": "^3.64"
     },
