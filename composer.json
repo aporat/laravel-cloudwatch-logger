@@ -31,8 +31,7 @@
         "orchestra/testbench": "^8.0 || ^9.0 || ^10.0",
         "laravel/pint": "^1.21",
         "phpunit/phpunit": "^11.0 || ^12.0",
-        "mockery/mockery": "^1.6",
-        "friendsofphp/php-cs-fixer": "^3.64"
+        "mockery/mockery": "^1.6"
     },
     "autoload": {
         "psr-4": {
@@ -61,10 +60,7 @@
     },
     "scripts": {
         "test": "phpunit --colors=always",
-        "test-coverage": "phpunit --colors=always --coverage-html coverage",
-        "test-ci": "phpunit --colors=always --coverage-text --coverage-clover coverage.xml",
-        "lint": "php-cs-fixer fix --dry-run --diff",
-        "lint-fix": "php-cs-fixer fix",
+        "test-ci": "phpunit --colors=always --coverage-text --coverage-clover coverage.xml --log-junit junit.xml",
         "post-install-cmd": [
             "@composer dump-autoload --optimize"
         ],
