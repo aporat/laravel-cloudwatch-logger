@@ -29,7 +29,7 @@ final class CloudWatchLoggerFactory
     /**
      * Create a new CloudWatch logger factory instance.
      *
-     * @param  Container|null  $container  Laravel container instance (optional, defaults to null)
+     * @param Container|null $container Laravel container instance (optional, defaults to null)
      */
     public function __construct(?Container $container = null)
     {
@@ -39,10 +39,11 @@ final class CloudWatchLoggerFactory
     /**
      * Create a configured CloudWatch logger instance.
      *
-     * @param  array<string, mixed>  $config  Configuration array for CloudWatch logging
-     * @return Logger Configured Monolog logger instance
+     * @param array<string, mixed> $config Configuration array for CloudWatch logging
      *
      * @throws IncompleteCloudWatchConfig If required config is missing or invalid
+     *
+     * @return Logger Configured Monolog logger instance
      */
     public function __invoke(array $config): Logger
     {
@@ -67,14 +68,15 @@ final class CloudWatchLoggerFactory
     /**
      * Resolve the formatter for CloudWatch logs based on configuration.
      *
-     * @param  array<string, mixed>  $config  Configuration array with optional formatter settings
-     * @return FormatterInterface Formatter instance for Monolog
+     * @param array<string, mixed> $config Configuration array with optional formatter settings
      *
      * @throws IncompleteCloudWatchConfig If formatter configuration is invalid
+     *
+     * @return FormatterInterface Formatter instance for Monolog
      */
     private function resolveFormatter(array $config): FormatterInterface
     {
-        if (! isset($config['formatter'])) {
+        if (!isset($config['formatter'])) {
             return new LineFormatter(
                 '%channel%: %level_name%: %message% %context% %extra%',
                 null,
@@ -86,8 +88,8 @@ final class CloudWatchLoggerFactory
         $formatter = $config['formatter'];
 
         if (is_string($formatter) && class_exists($formatter)) {
-            if (! $this->container) {
-                return new $formatter;
+            if (!$this->container) {
+                return new $formatter();
             }
 
             return $this->container->make($formatter);
@@ -103,12 +105,13 @@ final class CloudWatchLoggerFactory
     /**
      * Validate and retrieve a required configuration value.
      *
-     * @param  array<string, mixed>  $config  Configuration array
-     * @param  string  $key  Config key to retrieve
-     * @param  string  $description  Description of the key for error messaging
-     * @return mixed Config value
+     * @param array<string, mixed> $config      Configuration array
+     * @param string               $key         Config key to retrieve
+     * @param string               $description Description of the key for error messaging
      *
      * @throws IncompleteCloudWatchConfig If the key is missing or empty
+     *
+     * @return mixed Config value
      */
     private function validateConfig(array $config, string $key, string $description): mixed
     {

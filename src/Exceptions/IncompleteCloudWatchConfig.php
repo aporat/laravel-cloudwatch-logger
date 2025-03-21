@@ -17,9 +17,9 @@ class IncompleteCloudWatchConfig extends Exception
     /**
      * Create a new incomplete CloudWatch configuration exception.
      *
-     * @param  string  $message  The exception message (default: 'Incomplete CloudWatch configuration')
-     * @param  int  $code  The exception code (default: 0)
-     * @param  Exception|null  $previous  The previous exception for chaining (default: null)
+     * @param string         $message  The exception message (default: 'Incomplete CloudWatch configuration')
+     * @param int            $code     The exception code (default: 0)
+     * @param Exception|null $previous The previous exception for chaining (default: null)
      */
     public function __construct(string $message = 'Incomplete CloudWatch configuration', int $code = 0, ?Exception $previous = null)
     {
