@@ -61,12 +61,7 @@
     "scripts": {
         "test": "phpunit --colors=always",
         "test-ci": "phpunit --colors=always --coverage-text --coverage-clover coverage.xml --log-junit junit.xml",
-        "post-install-cmd": [
-            "@composer dump-autoload --optimize"
-        ],
-        "post-update-cmd": [
-            "@composer dump-autoload --optimize"
-        ]
+        "check": "vendor/bin/pint --test"
     },
     "support": {
         "issues": "https://github.com/aporat/laravel-cloudwatch-logger/issues",

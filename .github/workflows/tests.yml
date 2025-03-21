@@ -68,7 +68,7 @@ jobs:
                 slug: aporat/laravel-cloudwatch-logger
 
             - name: Upload test results to Codecov
-              if: ${{ !cancelled() }}
+              if: matrix.coverage == 'xdebug'
               uses: codecov/test-results-action@v1
               with:
                 token: ${{ secrets.CODECOV_TOKEN }}
