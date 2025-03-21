@@ -1,4 +1,0 @@
-build:
-    image: default-bionic
-    environment:
-        php: 8.2.28
