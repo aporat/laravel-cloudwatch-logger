@@ -57,9 +57,9 @@ class LoggerTest extends TestCase
     public function test_creates_logger_with_line_formatter_callable(): void
     {
         $config = $this->getBaseConfig([
-            'group'     => 'myapp-testing',
-            'stream'    => 'default',
-            'name'      => 'default',
+            'group' => 'myapp-testing',
+            'stream' => 'default',
+            'name' => 'default',
             'formatter' => fn (array $configs) => new LineFormatter(
                 '%channel%: %level_name%: %message% %context% %extra%',
                 null,
@@ -81,7 +81,7 @@ class LoggerTest extends TestCase
             Level::Error,
             'Test log message',
             ['user_id' => 123],
-            ['key'     => 'value']
+            ['key' => 'value']
         );
         $formatted = $formatter->format($record);
 
@@ -97,28 +97,27 @@ class LoggerTest extends TestCase
     /**
      * Generate a base CloudWatch configuration with optional overrides.
      *
-     * @param array<string, mixed> $overrides Custom config values to merge
-     *
+     * @param  array<string, mixed>  $overrides  Custom config values to merge
      * @return array<string, mixed> Complete config array
      */
     private function getBaseConfig(array $overrides = []): array
     {
         return array_merge([
             'driver' => 'custom',
-            'via'    => CloudWatchLoggerFactory::class,
-            'aws'    => [
-                'region'      => 'us-east-1',
-                'version'     => 'latest',
+            'via' => CloudWatchLoggerFactory::class,
+            'aws' => [
+                'region' => 'us-east-1',
+                'version' => 'latest',
                 'credentials' => [
-                    'key'    => 'AWS_ACCESS_KEY_ID',
+                    'key' => 'AWS_ACCESS_KEY_ID',
                     'secret' => 'AWS_SECRET_ACCESS_KEY',
                 ],
             ],
-            'name'      => 'CLOUDWATCH_LOG_NAME',
-            'group'     => 'CLOUDWATCH_LOG_GROUP_NAME',
-            'stream'    => 'CLOUDWATCH_LOG_STREAM',
+            'name' => 'CLOUDWATCH_LOG_NAME',
+            'group' => 'CLOUDWATCH_LOG_GROUP_NAME',
+            'stream' => 'CLOUDWATCH_LOG_STREAM',
             'retention' => 7,
-            'level'     => Level::Error,
+            'level' => Level::Error,
         ], $overrides);
     }
 }
