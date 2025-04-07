@@ -4,8 +4,7 @@
 [![Monthly Downloads](https://img.shields.io/packagist/dm/aporat/laravel-cloudwatch-logger.svg?style=flat-square&logo=composer)](https://packagist.org/packages/aporat/laravel-cloudwatch-logger)
 [![Codecov](https://img.shields.io/codecov/c/github/aporat/laravel-cloudwatch-logger?style=flat-square)](https://codecov.io/github/aporat/laravel-cloudwatch-logger)
 [![Laravel Version](https://img.shields.io/badge/Laravel-12.x-orange.svg?style=flat-square)](https://laravel.com/docs/12.x)
-[![Scrutinizer build (GitHub/Bitbucket)](https://img.shields.io/scrutinizer/build/g/aporat/laravel-cloudwatch-logger?style=flat-square)](https://scrutinizer-ci.com/g/aporat/laravel-cloudwatch-logger/build-status/master)
-[![Scrutinizer quality (GitHub/Bitbucket)](https://img.shields.io/scrutinizer/quality/g/aporat/laravel-cloudwatch-logger?style=flat-square)](https://scrutinizer-ci.com/g/aporat/laravel-cloudwatch-logger/?branch=master)
+![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/aporat/laravel-cloudwatch-logger/ci.yml?style=flat-square)
 [![License](https://img.shields.io/packagist/l/aporat/laravel-cloudwatch-logger.svg?style=flat-square)](https://github.com/aporat/laravel-cloudwatch-logger/blob/master/LICENSE)
 
 A Laravel logging driver for seamless integration with AWS CloudWatch Logs.
@@ -14,11 +13,11 @@ A Laravel logging driver for seamless integration with AWS CloudWatch Logs.
 - Custom Monolog channel for sending logs to CloudWatch.
 - Configurable AWS credentials, log group, stream, and retention period.
 - Support for custom log formatters (e.g., JSON, line format).
-- Compatible with Laravel’s native logging system via the `Log` facade.
+- Compatible with Laravel native logging system via the `Log` facade.
 - Built-in configuration publishing for easy setup.
 
 ## Requirements
-- **PHP**: 8.2 or higher
+- **PHP**: 8.3 or higher
 - **Laravel**: 10.x, 11.x,  12.x
 - **AWS SDK**: Provided via `phpnexus/cwh` dependency
 

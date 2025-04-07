@@ -1,4 +1,4 @@
-name: Tests
+name: CI
 
 on:
     push:
@@ -6,8 +6,6 @@ on:
     release:
         types:
             - published
-    schedule:
-        - cron: '0 0 * * *'
 
 jobs:
     php-tests:
@@ -16,7 +14,7 @@ jobs:
         strategy:
             fail-fast: false
             matrix:
-                php: [8.2, 8.3, 8.4]
+                php: [8.3, 8.4]
                 laravel: [10.*, 11.*, 12.*]
                 os: [ubuntu-latest]
                 coverage: [none]
@@ -52,6 +50,9 @@ jobs:
             - name: Install Dependencies
               run: composer install -q --no-ansi --no-interaction --no-scripts --no-progress --prefer-dist --ignore-platform-reqs
 
+            - name: Execute linter
+              run: composer check
+
             - name: Execute tests (Unit and Feature tests) via PHPUnit
               if: matrix.coverage == 'none'
               run: composer test
@@ -65,10 +66,11 @@ jobs:
               with:
                 token: ${{ secrets.CODECOV_TOKEN }}
                 if: matrix.coverage == 'xdebug'
-                slug: aporat/laravel-cloudwatch-logger
+                slug: ${{ github.repository }}
 
             - name: Upload test results to Codecov
               if: matrix.coverage == 'xdebug'
               uses: codecov/test-results-action@v1
               with:
                 token: ${{ secrets.CODECOV_TOKEN }}
+                slug: ${{ github.repository }}
