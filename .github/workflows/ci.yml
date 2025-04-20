@@ -14,7 +14,7 @@ jobs:
         strategy:
             fail-fast: false
             matrix:
-                php: [8.3, 8.4]
+                php: [8.4]
                 laravel: [10.*, 11.*, 12.*]
                 os: [ubuntu-latest]
                 coverage: [none]
@@ -48,29 +48,34 @@ jobs:
                   key: ${{ matrix.os }}-${{ matrix.php }}-${{ matrix.laravel }}-vendor-${{ hashFiles('**/composer.lock') }}
 
             - name: Install Dependencies
-              run: composer install -q --no-ansi --no-interaction --no-scripts --no-progress --prefer-dist --ignore-platform-reqs
-
-            - name: Execute linter
-              run: composer check
+              uses: ramsey/composer-install@v3
 
             - name: Execute tests (Unit and Feature tests) via PHPUnit
               if: matrix.coverage == 'none'
               run: composer test
+
+            - name: Run code style check
+              if: matrix.coverage == 'xdebug'
+              run: composer check
+
+            - name: Run code analyze
+              if: matrix.coverage == 'xdebug'
+              run: composer analyze
 
             - name: Execute tests (Unit and Feature tests) via PHPUnit
               if: matrix.coverage == 'xdebug'
               run: composer test-ci
 
             - name: Upload coverage reports to Codecov
+              if: matrix.coverage == 'xdebug'
               uses: codecov/codecov-action@v5
               with:
-                token: ${{ secrets.CODECOV_TOKEN }}
-                if: matrix.coverage == 'xdebug'
-                slug: ${{ github.repository }}
+                  token: ${{ secrets.CODECOV_TOKEN }}
+                  slug: ${{ github.repository }}
 
             - name: Upload test results to Codecov
               if: matrix.coverage == 'xdebug'
               uses: codecov/test-results-action@v1
               with:
-                token: ${{ secrets.CODECOV_TOKEN }}
-                slug: ${{ github.repository }}
+                  token: ${{ secrets.CODECOV_TOKEN }}
+                  slug: ${{ github.repository }}

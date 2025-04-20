@@ -1,7 +1,7 @@
 # Laravel CloudWatch Logger
 
 [![Latest Stable Version](https://img.shields.io/packagist/v/aporat/laravel-cloudwatch-logger.svg?style=flat-square&logo=composer)](https://packagist.org/packages/aporat/laravel-cloudwatch-logger)
-[![Monthly Downloads](https://img.shields.io/packagist/dm/aporat/laravel-cloudwatch-logger.svg?style=flat-square&logo=composer)](https://packagist.org/packages/aporat/laravel-cloudwatch-logger)
+[![Downloads](https://img.shields.io/packagist/dt/aporat/laravel-cloudwatch-logger.svg?style=flat-square&logo=composer)](https://packagist.org/packages/aporat/laravel-cloudwatch-logger)
 [![Codecov](https://img.shields.io/codecov/c/github/aporat/laravel-cloudwatch-logger?style=flat-square)](https://codecov.io/github/aporat/laravel-cloudwatch-logger)
 [![Laravel Version](https://img.shields.io/badge/Laravel-12.x-orange.svg?style=flat-square)](https://laravel.com/docs/12.x)
 ![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/aporat/laravel-cloudwatch-logger/ci.yml?style=flat-square)
@@ -17,7 +17,7 @@ A Laravel logging driver for seamless integration with AWS CloudWatch Logs.
 - Built-in configuration publishing for easy setup.
 
 ## Requirements
-- **PHP**: 8.3 or higher
+- **PHP**: 8.4 or higher
 - **Laravel**: 10.x, 11.x,  12.x
 - **AWS SDK**: Provided via `phpnexus/cwh` dependency
 
