@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Aporat\CloudWatchLogger;
 
-use Aporat\CloudWatchLogger\CloudWatchLoggerFactory;
 use Illuminate\Contracts\Support\DeferrableProvider;
 use Illuminate\Support\ServiceProvider;
 
@@ -21,7 +20,7 @@ class CloudWatchLoggerServiceProvider extends ServiceProvider implements Deferra
      *
      * @var string
      */
-    private const string CONFIG_PATH = __DIR__ . '/../config/cloudwatch-logger.php';
+    private const string CONFIG_PATH = __DIR__.'/../config/cloudwatch-logger.php';
 
     /**
      * Register services with the container.
