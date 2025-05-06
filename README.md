@@ -33,14 +33,14 @@ The service provider (`CloudWatchLoggerServiceProvider`) is automatically regist
 ```php
 'providers' => [
     // ...
-    Aporat\CloudWatchLogger\Laravel\CloudWatchLoggerServiceProvider::class,
+    Aporat\CloudWatchLogger\CloudWatchLoggerServiceProvider::class,
 ],
 ```
 
 Publish the configuration file:
 
 ```bash
-php artisan vendor:publish --provider="Aporat\CloudWatchLogger\Laravel\CloudWatchLoggerServiceProvider" --tag="config"
+php artisan vendor:publish --provider="Aporat\CloudWatchLogger\CloudWatchLoggerServiceProvider" --tag="config"
 ```
 
 This copies `cloudwatch-logger.php` to your `config/` directory.

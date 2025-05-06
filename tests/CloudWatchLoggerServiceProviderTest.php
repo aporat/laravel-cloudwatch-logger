@@ -3,7 +3,7 @@
 namespace Aporat\CloudWatchLogger\Tests;
 
 use Aporat\CloudWatchLogger\CloudWatchLoggerFactory;
-use Aporat\CloudWatchLogger\Laravel\CloudWatchLoggerServiceProvider;
+use Aporat\CloudWatchLogger\CloudWatchLoggerServiceProvider;
 use Orchestra\Testbench\TestCase;
 
 class CloudWatchLoggerServiceProviderTest extends TestCase

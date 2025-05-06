@@ -55,7 +55,7 @@
     "extra": {
         "laravel": {
             "providers": [
-                "Aporat\\CloudWatchLogger\\Laravel\\CloudWatchLoggerServiceProvider"
+                "Aporat\\CloudWatchLogger\\CloudWatchLoggerServiceProvider"
             ]
         }
     },
