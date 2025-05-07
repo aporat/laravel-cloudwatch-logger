@@ -74,7 +74,9 @@ final class CloudWatchLoggerFactory
      */
     private function resolveFormatter(array $config): FormatterInterface
     {
-        if (! isset($config['formatter'])) {
+        $formatter = $config['formatter'] ?? null;
+
+        if (is_null($formatter)) {
             return new LineFormatter(
                 '%channel%: %level_name%: %message% %context% %extra%',
                 null,
@@ -83,14 +85,15 @@ final class CloudWatchLoggerFactory
             );
         }
 
-        $formatter = $config['formatter'];
-
-        if (is_string($formatter) && class_exists($formatter)) {
-            if (! $this->container) {
-                return new $formatter;
+        if (is_string($formatter)) {
+            if (class_exists($formatter)) {
+                return $this->container
+                    ? $this->container->make($formatter)
+                    : new $formatter;
             }
 
-            return $this->container->make($formatter);
+            // Assume it's a format string for LineFormatter
+            return new LineFormatter($formatter, null, false, true);
         }
 
         if (is_callable($formatter)) {

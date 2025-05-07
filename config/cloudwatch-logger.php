@@ -35,6 +35,6 @@ return [
         'name' => env('CLOUDWATCH_LOG_NAME', env('APP_NAME', 'laravel')),
         'retention' => env('CLOUDWATCH_LOG_RETENTION', 14),
         'level' => env('CLOUDWATCH_LOG_LEVEL', \Monolog\Level::Error->value),
-        'batch_size' => env('CLOUDWATCH_LOG_BATCH_SIZE', 10000)
+        'batch_size' => env('CLOUDWATCH_LOG_BATCH_SIZE', 10000),
     ],
 ];

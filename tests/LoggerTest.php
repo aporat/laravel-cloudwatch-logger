@@ -41,16 +41,6 @@ class LoggerTest extends TestCase
         $this->assertInstanceOf(JsonFormatter::class, $logger->getHandlers()[0]->getFormatter());
     }
 
-    public function test_throws_exception_for_invalid_formatter(): void
-    {
-        $config = $this->getBaseConfig(['formatter' => 'InvalidFormatter']);
-
-        $this->expectException(IncompleteCloudWatchConfig::class);
-        $this->expectExceptionMessage('Invalid formatter configuration for CloudWatch logs');
-
-        $this->factory->__invoke($config); // Explicitly call __invoke
-    }
-
     /**
      * @throws \Exception
      */
@@ -68,10 +58,9 @@ class LoggerTest extends TestCase
             ),
         ]);
 
-        $logger = $this->factory->__invoke($config); // Explicitly call __invoke
+        $logger = $this->factory->__invoke($config);
         $formatter = $logger->getHandlers()[0]->getFormatter();
 
-        $this->assertInstanceOf(Logger::class, $logger);
         $this->assertCount(1, $logger->getHandlers());
         $this->assertInstanceOf(LineFormatter::class, $formatter);
 
@@ -86,6 +75,33 @@ class LoggerTest extends TestCase
         $formatted = $formatter->format($record);
 
         $this->assertEquals(': ERROR: Test log message {"user_id":123} {"key":"value"}', $formatted);
+    }
+
+    public function test_creates_logger_with_format_string(): void
+    {
+        $format = '[%datetime%] %channel%.%level_name%: %message% %context% %extra%';
+
+        $config = $this->getBaseConfig([
+            'formatter' => $format,
+        ]);
+
+        $logger = $this->factory->__invoke($config);
+        $formatter = $logger->getHandlers()[0]->getFormatter();
+
+        $this->assertInstanceOf(LineFormatter::class, $formatter);
+
+        $record = new LogRecord(
+            new \DateTimeImmutable('2025-05-07T12:00:00Z'),
+            'test-channel',
+            Level::Warning,
+            'This is a test log',
+            ['user_id' => 1],
+            []
+        );
+
+        $output = $formatter->format($record);
+
+        $this->assertStringContainsString('test-channel.WARNING: This is a test log {"user_id":1}', $output);
     }
 
     protected function tearDown(): void
@@ -119,5 +135,22 @@ class LoggerTest extends TestCase
             'retention' => 7,
             'level' => Level::Error,
         ], $overrides);
+    }
+
+    public function test_creates_logger_with_default_line_formatter(): void
+    {
+        $config = $this->getBaseConfig();
+        $logger = $this->factory->__invoke($config);
+
+        $this->assertInstanceOf(LineFormatter::class, $logger->getHandlers()[0]->getFormatter());
+    }
+
+    public function test_missing_required_config_throws_exception(): void
+    {
+        $config = $this->getBaseConfig();
+        unset($config['stream']);
+
+        $this->expectException(IncompleteCloudWatchConfig::class);
+        $this->factory->__invoke($config);
     }
 }
