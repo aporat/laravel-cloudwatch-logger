@@ -35,14 +35,6 @@ return [
         'name' => env('CLOUDWATCH_LOG_NAME', env('APP_NAME', 'laravel')),
         'retention' => env('CLOUDWATCH_LOG_RETENTION', 14),
         'level' => env('CLOUDWATCH_LOG_LEVEL', \Monolog\Level::Error->value),
-        'batch_size' => env('CLOUDWATCH_LOG_BATCH_SIZE', 10000),
-        'formatter' => function (array $config) {
-            return new \Monolog\Formatter\LineFormatter(
-                format: '%channel%: %level_name%: %message% %context% %extra%',
-                dateFormat: null,
-                allowInlineLineBreaks: false,
-                ignoreEmptyContextAndExtra: true
-            );
-        },
+        'batch_size' => env('CLOUDWATCH_LOG_BATCH_SIZE', 10000)
     ],
 ];
