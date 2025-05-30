@@ -42,7 +42,7 @@ final class CloudWatchLoggerFactory
      * @param  array<string, mixed>  $config  Configuration array for CloudWatch logging
      * @return Logger Configured Monolog logger instance
      *
-     * @throws IncompleteCloudWatchConfig If required config is missing or invalid
+     * @throws IncompleteCloudWatchConfig If the required config is missing or invalid
      */
     public function __invoke(array $config): Logger
     {
