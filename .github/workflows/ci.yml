@@ -1,31 +1,30 @@
-# .github/workflows/ci.yml
-
 name: CI
 
 on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
-  release:
-    types: [published]
+    push:
+    pull_request:
+    release:
+        types:
+            - published
 
 jobs:
     php-tests:
-        runs-on: ${{ matrix.os }}
+        runs-on: ubuntu-latest 
 
         strategy:
             fail-fast: false
             matrix:
                 php: [8.4]
                 laravel: [10.*, 11.*, 12.*]
-                os: [ubuntu-latest]
-                coverage: [none]
-                include:
-                    - laravel: 12.*
+                coverage: [none, xdebug]
+                exclude:
+                    # Exclude coverage runs for all Laravel versions except 12.*
+                    - laravel: 10.*
+                      coverage: xdebug
+                    - laravel: 11.*
                       coverage: xdebug
 
-        name: 'PHP ${{ matrix.php }} | Laravel ${{ matrix.laravel }}'
+        name: 'PHP ${{ matrix.php }} | Laravel ${{ matrix.laravel }} | ${{ matrix.coverage }}'
 
         steps:
             - name: Checkout Code
@@ -74,3 +73,4 @@ jobs:
               with:
                   token: ${{ secrets.CODECOV_TOKEN }}
                   fail_ci_if_error: true
+
