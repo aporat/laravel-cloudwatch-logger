@@ -31,7 +31,7 @@
         "laravel/pint": "^1.21",
         "mockery/mockery": "^1.6",
         "orchestra/testbench": "^8.0 || ^9.0 || ^10.0",
-        "phpstan/phpstan": "^2.1",
+        "phpstan/phpstan": "^1.10",
         "phpunit/phpunit": "^11.0 || ^12.0"
     },
     "autoload": {
@@ -56,15 +56,14 @@
         }
     },
     "scripts": {
-        "test": "vendor/bin/phpunit",
-        "test:coverage": "vendor/bin/phpunit --coverage",
-        "check": "vendor/bin/pint --test",
-        "analyze": "vendor/bin/phpstan analyse src --level=8 --memory-limit=-1",
+        "pint": "vendor/bin/pint",
+        "phpstan": "vendor/bin/phpstan analyse src --level=8 --memory-limit=-1",
+        "test": "vendor/bin/phpunit --no-coverage",
+        "test:coverage": "vendor/bin/phpunit --coverage-text",
         "lint": [
-            "@check",
-            "@analyze"
+            "@pint",
+            "@phpstan"
         ],
-        "fix": "vendor/bin/pint",
         "ci": [
             "@lint",
             "@test:coverage"
