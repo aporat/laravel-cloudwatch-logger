@@ -1,11 +1,14 @@
+# .github/workflows/ci.yml
+
 name: CI
 
 on:
-    push:
-    pull_request:
-    release:
-        types:
-            - published
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  release:
+    types: [published]
 
 jobs:
     php-tests:
