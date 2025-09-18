@@ -19,12 +19,10 @@ jobs:
                 os: [ubuntu-latest]
                 coverage: [none]
                 include:
-                    - php: 8.4
-                      laravel: 12.*
-                      os: ubuntu-latest
+                    - laravel: 12.*
                       coverage: xdebug
 
-        name: '[P${{ matrix.php }}] [L${{ matrix.laravel }}] [${{ matrix.coverage }}]'
+        name: 'PHP ${{ matrix.php }} | Laravel ${{ matrix.laravel }}'
 
         steps:
             - name: Checkout Code
@@ -34,48 +32,42 @@ jobs:
               uses: shivammathur/setup-php@v2
               with:
                   php-version: ${{ matrix.php }}
-                  extensions: mbstring json openssl xdebug
+                  extensions: mbstring, json, openssl
                   ini-values: memory_limit=-1
                   tools: composer:v2
                   coverage: ${{ matrix.coverage }}
-              env:
-                  update: true
 
-            - name: Cache dependencies
+            - name: Cache Composer dependencies
               uses: actions/cache@v4
               with:
                   path: vendor
-                  key: ${{ matrix.os }}-${{ matrix.php }}-${{ matrix.laravel }}-vendor-${{ hashFiles('**/composer.lock') }}
+                  key: ${{ runner.os }}-${{ matrix.php }}-composer-${{ hashFiles('**/composer.lock') }}
+                  restore-keys: |
+                      ${{ runner.os }}-${{ matrix.php }}-composer-
 
             - name: Install Dependencies
               uses: ramsey/composer-install@v3
+              with:
+                  dependency-versions: 'laravel/framework:${{ matrix.laravel }}'
 
-            - name: Execute tests (Unit and Feature tests) via PHPUnit
+            - name: Execute tests
               if: matrix.coverage == 'none'
               run: composer test
 
-            - name: Run code style check
+            - name: Run Quality Checks and Coverage
               if: matrix.coverage == 'xdebug'
-              run: composer check
+              run: composer ci
 
-            - name: Run code analyze
-              if: matrix.coverage == 'xdebug'
-              run: composer analyze
-
-            - name: Execute tests (Unit and Feature tests) via PHPUnit
-              if: matrix.coverage == 'xdebug'
-              run: composer test-ci
-
-            - name: Upload coverage reports to Codecov
+            - name: Upload Coverage to Codecov
               if: matrix.coverage == 'xdebug'
               uses: codecov/codecov-action@v5
               with:
                   token: ${{ secrets.CODECOV_TOKEN }}
-                  slug: ${{ github.repository }}
+                  fail_ci_if_error: true
 
-            - name: Upload test results to Codecov
+            - name: Upload Test Results to Codecov
               if: matrix.coverage == 'xdebug'
               uses: codecov/test-results-action@v1
               with:
                   token: ${{ secrets.CODECOV_TOKEN }}
-                  slug: ${{ github.repository }}
+                  fail_ci_if_error: true

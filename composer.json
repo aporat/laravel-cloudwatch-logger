@@ -23,8 +23,8 @@
     "require": {
         "php": "^8.4",
         "ext-json": "*",
-        "illuminate/support": "^10.0 || ^11.0 || ^12.0",
         "illuminate/log": "^10.0 || ^11.0 || ^12.0",
+        "illuminate/support": "^10.0 || ^11.0 || ^12.0",
         "phpnexus/cwh": "^2.0 || ^3.0"
     },
     "require-dev": {
@@ -46,11 +46,7 @@
     },
     "config": {
         "sort-packages": true,
-        "optimize-autoloader": true,
-        "preferred-install": "dist",
-        "allow-plugins": {
-            "dealerdirect/phpcodesniffer-composer-installer": true
-        }
+        "preferred-install": "dist"
     },
     "extra": {
         "laravel": {
@@ -60,15 +56,25 @@
         }
     },
     "scripts": {
-        "test": "phpunit --colors=always",
-        "test-ci": "phpunit --colors=always --coverage-text --coverage-clover coverage.xml --log-junit junit.xml",
+        "test": "vendor/bin/phpunit",
+        "test:coverage": "vendor/bin/phpunit --coverage",
         "check": "vendor/bin/pint --test",
-        "analyze": "phpstan analyse src --level=6 --memory-limit=-1"
+        "analyze": "vendor/bin/phpstan analyse src --level=8 --memory-limit=-1",
+        "lint": [
+            "@check",
+            "@analyze"
+        ],
+        "fix": "vendor/bin/pint",
+        "ci": [
+            "@lint",
+            "@test:coverage"
+        ]
     },
     "support": {
         "issues": "https://github.com/aporat/laravel-cloudwatch-logger/issues",
         "source": "https://github.com/aporat/laravel-cloudwatch-logger"
     },
-    "minimum-stability": "stable",
+    "minimum-stability": "dev",
     "prefer-stable": true
 }
+

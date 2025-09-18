@@ -20,7 +20,7 @@ class CloudWatchLoggerServiceProvider extends ServiceProvider implements Deferra
      *
      * @var string
      */
-    private const string CONFIG_PATH = __DIR__.'/../config/cloudwatch-logger.php';
+    private const CONFIG_PATH = __DIR__.'/../config/cloudwatch-logger.php';
 
     /**
      * Register services with the container.
@@ -36,7 +36,9 @@ class CloudWatchLoggerServiceProvider extends ServiceProvider implements Deferra
      */
     public function boot(): void
     {
-        $this->publishes([self::CONFIG_PATH => config_path('cloudwatch-logger.php')], 'config');
+        if ($this->app->runningInConsole()) {
+            $this->publishes([self::CONFIG_PATH => config_path('cloudwatch-logger.php')], 'config');
+        }
     }
 
     /**

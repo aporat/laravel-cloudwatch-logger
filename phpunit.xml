@@ -5,21 +5,33 @@
          cacheDirectory=".phpunit.cache"
          colors="true"
          executionOrder="depends,defects"
-         shortenArraysForExportThreshold="10"
          beStrictAboutOutputDuringTests="true"
          displayDetailsOnPhpunitDeprecations="true"
          failOnPhpunitDeprecation="true"
          failOnRisky="true"
          failOnWarning="true">
+
     <testsuites>
         <testsuite name="default">
             <directory>tests</directory>
         </testsuite>
     </testsuites>
 
+    <coverage>
+        <report>
+            <clover outputFile="coverage.xml" />
+            <html outputDirectory="coverage" />
+        </report>
+    </coverage>
+
     <source ignoreIndirectDeprecations="true" restrictNotices="true" restrictWarnings="true">
         <include>
             <directory>src</directory>
         </include>
     </source>
+
+    <php>
+        <ini name="memory_limit" value="-1" />
+    </php>
+
 </phpunit>
