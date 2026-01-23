@@ -19,22 +19,20 @@ return [
     | log group, stream, and formatting options.
     |
     */
-    'cloudwatch' => [
-        'driver' => 'custom',
-        'via' => \Aporat\CloudWatchLogger\CloudWatchLoggerFactory::class,
-        'aws' => [
-            'region' => env('AWS_DEFAULT_REGION', 'us-east-1'),
-            'version' => env('AWS_VERSION', 'latest'),
-            'credentials' => [
-                'key' => env('AWS_ACCESS_KEY_ID', ''),
-                'secret' => env('AWS_SECRET_ACCESS_KEY', ''),
-            ],
+    'driver' => 'custom',
+    'via' => \Aporat\CloudWatchLogger\CloudWatchLoggerFactory::class,
+    'aws' => [
+        'region' => env('AWS_DEFAULT_REGION', 'us-east-1'),
+        'version' => env('AWS_VERSION', 'latest'),
+        'credentials' => [
+            'key' => env('AWS_ACCESS_KEY_ID', ''),
+            'secret' => env('AWS_SECRET_ACCESS_KEY', ''),
         ],
-        'group' => env('CLOUDWATCH_LOG_GROUP_NAME', env('APP_NAME', 'laravel').'-'.env('APP_ENV', 'production')),
-        'stream' => env('CLOUDWATCH_LOG_STREAM', 'default'),
-        'name' => env('CLOUDWATCH_LOG_NAME', env('APP_NAME', 'laravel')),
-        'retention' => env('CLOUDWATCH_LOG_RETENTION', 14),
-        'level' => env('CLOUDWATCH_LOG_LEVEL', \Monolog\Level::Error->value),
-        'batch_size' => env('CLOUDWATCH_LOG_BATCH_SIZE', 10000),
     ],
+    'group' => env('CLOUDWATCH_LOG_GROUP_NAME', env('APP_NAME', 'laravel').'-'.env('APP_ENV', 'production')),
+    'stream' => env('CLOUDWATCH_LOG_STREAM', 'default'),
+    'name' => env('CLOUDWATCH_LOG_NAME', env('APP_NAME', 'laravel')),
+    'retention' => env('CLOUDWATCH_LOG_RETENTION', 14),
+    'level' => env('CLOUDWATCH_LOG_LEVEL', \Monolog\Level::Error->value),
+    'batch_size' => env('CLOUDWATCH_LOG_BATCH_SIZE', 10000),
 ];

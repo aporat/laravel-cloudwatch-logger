@@ -2,7 +2,7 @@
 
 Contributions are **welcome** and will be fully **credited**.
 
-We accept contributions via Pull Requests on [Github](https://github.com/thephpleague/oauth2-github).
+We accept contributions via Pull Requests on [Github](https://github.com/aporat/laravel-cloudwatch-logger).
 
 
 ## Pull Requests
@@ -33,10 +33,10 @@ $ composer test
 ```
 
 
-## Running PHP Code Sniffer
+## Running Quality Checks
 
 ``` bash
-$ composer check
+$ composer lint
 ```
 
 **Happy coding**!

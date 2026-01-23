@@ -35,9 +35,9 @@ class CloudWatchLoggerServiceProviderTest extends TestCase
 
         $this->assertIsArray($config);
         $this->assertNotEmpty($config, 'Configuration should not be empty after merging.');
-        $this->assertEquals('custom', $config['cloudwatch']['driver']);
-        $this->assertEquals(CloudWatchLoggerFactory::class, $config['cloudwatch']['via']);
-        $this->assertEquals('us-east-1', $config['cloudwatch']['aws']['region']);
+        $this->assertEquals('custom', $config['driver']);
+        $this->assertEquals(CloudWatchLoggerFactory::class, $config['via']);
+        $this->assertEquals('us-east-1', $config['aws']['region']);
     }
 
     #[Test]
