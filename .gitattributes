@@ -1,8 +1,16 @@
-/.idea
-/build
-/vendor
-composer.phar
-composer.lock
-.DS_Store
-.phpunit*
-.docker_data
+/.idea export-ignore
+/build export-ignore
+/vendor export-ignore
+composer.phar export-ignore
+composer.lock export-ignore
+.DS_Store export-ignore
+.phpunit* export-ignore
+.docker_data export-ignore
+/.github export-ignore
+/tests export-ignore
+.editorconfig export-ignore
+.gitattributes export-ignore
+.gitignore export-ignore
+CONTRIBUTING.md export-ignore
+phpstan.neon export-ignore
+phpunit.xml export-ignore

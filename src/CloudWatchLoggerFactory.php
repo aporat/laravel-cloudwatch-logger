@@ -161,6 +161,11 @@ final readonly class CloudWatchConfig
      */
     public static function fromArray(array $config): self
     {
+        $tags = $config['tags'] ?? [];
+        if (! is_array($tags)) {
+            throw new IncompleteCloudWatchConfig('Tags must be an array in CloudWatch configuration.');
+        }
+
         return new self(
             aws: self::validate($config, 'aws', 'AWS credentials'),
             group: self::validate($config, 'group', 'log group name'),
@@ -168,7 +173,7 @@ final readonly class CloudWatchConfig
             name: self::validate($config, 'name', 'logger name'),
             retention: $config['retention'] ?? CloudWatchLoggerFactory::DEFAULT_RETENTION_DAYS,
             batchSize: $config['batch_size'] ?? CloudWatchLoggerFactory::DEFAULT_BATCH_SIZE,
-            tags: $config['tags'] ?? [],
+            tags: $tags,
             level: $config['level'] ?? Level::Debug,
             formatter: $config['formatter'] ?? null,
             originalConfig: $config
@@ -184,7 +189,7 @@ final readonly class CloudWatchConfig
      */
     private static function validate(array $config, string $key, string $description): mixed
     {
-        if (empty($config[$key])) {
+        if (! isset($config[$key]) || (is_string($config[$key]) && trim($config[$key]) === '') || (is_array($config[$key]) && empty($config[$key]))) {
             throw new IncompleteCloudWatchConfig("Missing or invalid $description in CloudWatch configuration.");
         }
 
