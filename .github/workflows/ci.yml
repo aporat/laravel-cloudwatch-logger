@@ -48,7 +48,7 @@ jobs:
                       ${{ runner.os }}-${{ matrix.php }}-composer-
 
             - name: Install Dependencies
-              uses: ramsey/composer-install@v3
+              uses: ramsey/composer-install@v4
               with:
                   dependency-versions: 'laravel/framework:${{ matrix.laravel }}'
 
