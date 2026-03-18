@@ -3,7 +3,7 @@
 [![Latest Stable Version](https://img.shields.io/packagist/v/aporat/laravel-cloudwatch-logger.svg?style=flat-square&logo=composer)](https://packagist.org/packages/aporat/laravel-cloudwatch-logger)
 [![Downloads](https://img.shields.io/packagist/dt/aporat/laravel-cloudwatch-logger.svg?style=flat-square&logo=composer)](https://packagist.org/packages/aporat/laravel-cloudwatch-logger)
 [![Codecov](https://img.shields.io/codecov/c/github/aporat/laravel-cloudwatch-logger?style=flat-square)](https://codecov.io/github/aporat/laravel-cloudwatch-logger)
-[![Laravel Version](https://img.shields.io/badge/Laravel-10.x%20|%2011.x%20|%2012.x-orange.svg?style=flat-square)](https://laravel.com)
+[![Laravel Version](https://img.shields.io/badge/Laravel-12.x%20|%2013.x-orange.svg?style=flat-square)](https://laravel.com)
 ![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/aporat/laravel-cloudwatch-logger/ci.yml?style=flat-square)
 [![License](https://img.shields.io/packagist/l/aporat/laravel-cloudwatch-logger.svg?style=flat-square)](LICENSE)
 
@@ -20,7 +20,7 @@ A Laravel logging driver for seamless integration with AWS CloudWatch Logs.
 ## Requirements
 
 - **PHP**: `^8.4`
-- **Laravel**: `^10.0` || `^11.0` || `^12.0`
+- **Laravel**: `^12.0` || `^13.0`
 - **AWS SDK**: Provided via `phpnexus/cwh`
 
 ## Installation
