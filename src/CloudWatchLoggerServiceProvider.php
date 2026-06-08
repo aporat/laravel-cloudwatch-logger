@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Aporat\CloudWatchLogger;
 
-use Illuminate\Contracts\Support\DeferrableProvider;
 use Illuminate\Support\ServiceProvider;
 
 /**
@@ -13,7 +12,7 @@ use Illuminate\Support\ServiceProvider;
  * Registers the CloudWatch logger factory as a service and handles configuration
  * merging and publishing for CloudWatch logging integration.
  */
-class CloudWatchLoggerServiceProvider extends ServiceProvider implements DeferrableProvider
+class CloudWatchLoggerServiceProvider extends ServiceProvider
 {
     /**
      * Path to the package's configuration file.
@@ -47,15 +46,5 @@ class CloudWatchLoggerServiceProvider extends ServiceProvider implements Deferra
     protected function registerCloudWatchLogger(): void
     {
         $this->app->singleton(CloudWatchLoggerFactory::class, fn ($app) => new CloudWatchLoggerFactory($app));
-    }
-
-    /**
-     * Get the services provided by this provider.
-     *
-     * @return array<int, string>
-     */
-    public function provides(): array
-    {
-        return [CloudWatchLoggerFactory::class];
     }
 }
