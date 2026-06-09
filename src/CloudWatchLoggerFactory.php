@@ -213,7 +213,20 @@ final readonly class CloudWatchConfig
         }
 
         if (is_string($value)) {
-            return Level::fromName(ucfirst(strtolower(trim($value))));
+            $name = strtolower(trim($value));
+            $map = [
+                'debug' => Level::Debug,
+                'info' => Level::Info,
+                'notice' => Level::Notice,
+                'warning' => Level::Warning,
+                'error' => Level::Error,
+                'critical' => Level::Critical,
+                'alert' => Level::Alert,
+                'emergency' => Level::Emergency,
+            ];
+            if (isset($map[$name])) {
+                return $map[$name];
+            }
         }
 
         throw new IncompleteCloudWatchConfig('Invalid log level in CloudWatch configuration.');
@@ -226,6 +239,7 @@ final readonly class CloudWatchConfig
      * present so misconfiguration surfaces as IncompleteCloudWatchConfig
      * rather than an opaque AWS SDK error at first log call.
      *
+     * @param  array<string, mixed>  $config
      * @return array<string, mixed>
      *
      * @throws IncompleteCloudWatchConfig
