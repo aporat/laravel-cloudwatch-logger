@@ -1,0 +1,446 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Aporat\CloudWatchLogger;
+
+use Aporat\CloudWatchLogger\Exceptions\IncompleteCloudWatchConfig;
+use Aws\Credentials\CredentialsInterface;
+use Monolog\Level;
+
+/**
+ * Validated, type-safe view of a CloudWatch channel configuration array.
+ *
+ * Every value the factory needs is resolved and checked here, so a bad channel
+ * definition fails with an {@see IncompleteCloudWatchConfig} naming the offending
+ * key instead of surfacing later as an opaque AWS or Monolog error on the first
+ * log write.
+ */
+final readonly class CloudWatchConfig
+{
+    /**
+     * Default log retention period in days.
+     */
+    public const int DEFAULT_RETENTION_DAYS = 14;
+
+    /**
+     * Default number of log entries to batch before sending.
+     */
+    public const int DEFAULT_BATCH_SIZE = 10000;
+
+    /**
+     * Hard ceiling enforced by the CloudWatch PutLogEvents API.
+     */
+    public const int MAX_BATCH_SIZE = 10000;
+
+    /**
+     * Default lifetime, in seconds, of a cached "group/stream exists" marker.
+     */
+    public const int DEFAULT_CACHE_TTL = 300;
+
+    /**
+     * Maximum length of a log group or log stream name.
+     */
+    private const int MAX_NAME_LENGTH = 512;
+
+    /**
+     * The only retention periods CloudWatch Logs accepts for PutRetentionPolicy.
+     *
+     * @var list<int>
+     */
+    public const array RETENTION_DAYS = [
+        1, 3, 5, 7, 14, 30, 60, 90, 120, 150, 180, 365, 400, 545, 731, 1096,
+        1827, 2192, 2557, 2922, 3288, 3653,
+    ];
+
+    /**
+     * @param  array<string, mixed>  $aws  Arguments for the CloudWatchLogsClient constructor.
+     * @param  int|null  $retention  Days to retain events, or null to never expire.
+     * @param  array<string, string>  $tags  Tags applied when the log group is created.
+     * @param  mixed  $cache  Raw PSR-6 cache setting; resolved by the factory.
+     * @param  mixed  $formatter  Raw formatter setting; resolved by the factory.
+     * @param  array<string, mixed>  $originalConfig  The unmodified channel config.
+     */
+    private function __construct(
+        public array $aws,
+        public string $group,
+        public string $stream,
+        public string $name,
+        public ?int $retention,
+        public int $batchSize,
+        public array $tags,
+        public Level $level,
+        public bool $bubble,
+        public bool $createGroup,
+        public bool $createStream,
+        public int $rpsLimit,
+        public mixed $cache,
+        public int $cacheTtl,
+        public bool $suppressFailures,
+        public bool $replacePlaceholders,
+        public mixed $formatter,
+        public array $originalConfig,
+    ) {}
+
+    /**
+     * Build a validated config from a raw Laravel channel definition.
+     *
+     * @param  array<string, mixed>  $config
+     *
+     * @throws IncompleteCloudWatchConfig
+     */
+    public static function fromArray(array $config): self
+    {
+        return new self(
+            aws: self::aws($config),
+            group: self::groupName($config),
+            stream: self::streamName($config),
+            name: self::requiredString($config, 'name', 'logger name'),
+            retention: self::retention($config),
+            batchSize: self::batchSize($config),
+            tags: self::tags($config),
+            level: self::level($config['level'] ?? Level::Debug),
+            bubble: self::bool($config, 'bubble', true),
+            createGroup: self::bool($config, 'create_group', true),
+            createStream: self::bool($config, 'create_stream', true),
+            rpsLimit: self::rpsLimit($config),
+            cache: $config['cache'] ?? null,
+            cacheTtl: self::cacheTtl($config),
+            suppressFailures: self::bool($config, 'suppress_failures', false),
+            replacePlaceholders: self::bool($config, 'replace_placeholders', false),
+            formatter: $config['formatter'] ?? null,
+            originalConfig: $config,
+        );
+    }
+
+    /**
+     * Validate the AWS client arguments.
+     *
+     * @param  array<string, mixed>  $config
+     * @return array<string, mixed>
+     *
+     * @throws IncompleteCloudWatchConfig
+     */
+    private static function aws(array $config): array
+    {
+        $aws = $config['aws'] ?? null;
+
+        if (! is_array($aws) || $aws === []) {
+            throw new IncompleteCloudWatchConfig('Missing or invalid AWS configuration in CloudWatch configuration.');
+        }
+
+        foreach (['region', 'version'] as $key) {
+            if (! is_string($aws[$key] ?? null) || trim($aws[$key]) === '') {
+                throw new IncompleteCloudWatchConfig("Missing or invalid AWS '$key' in CloudWatch configuration.");
+            }
+        }
+
+        $credentials = $aws['credentials'] ?? null;
+
+        if ($credentials === null || $credentials instanceof CredentialsInterface || is_callable($credentials)) {
+            return $aws;
+        }
+
+        if (! is_array($credentials)) {
+            throw new IncompleteCloudWatchConfig("AWS 'credentials' must be an array, a CredentialsInterface or a callable when provided.");
+        }
+
+        $key = is_string($credentials['key'] ?? null) ? trim($credentials['key']) : '';
+        $secret = is_string($credentials['secret'] ?? null) ? trim($credentials['secret']) : '';
+
+        // Partial credentials (one set, one empty) is clearly a config error.
+        // Both empty is intentional: defer to the AWS default credential chain
+        // (IAM role, env vars, ~/.aws/credentials) — drop the empty block so
+        // the SDK doesn't reject it.
+        if (($key === '') !== ($secret === '')) {
+            throw new IncompleteCloudWatchConfig("AWS credentials require both 'key' and 'secret' or neither.");
+        }
+
+        if ($key === '') {
+            unset($aws['credentials']);
+        }
+
+        return $aws;
+    }
+
+    /**
+     * Validate the log group name against CloudWatch's naming rules, so an
+     * invalid name fails here rather than as an AWS InvalidParameterException
+     * on the first flush (which the handler retries after a one-second sleep).
+     *
+     * @param  array<string, mixed>  $config
+     *
+     * @throws IncompleteCloudWatchConfig
+     */
+    private static function groupName(array $config): string
+    {
+        $group = self::requiredString($config, 'group', 'log group name');
+
+        if (mb_strlen($group) > self::MAX_NAME_LENGTH) {
+            throw new IncompleteCloudWatchConfig('CloudWatch log group name may not exceed '.self::MAX_NAME_LENGTH.' characters.');
+        }
+
+        if (preg_match('/^[A-Za-z0-9_\-\/.#]+$/', $group) !== 1) {
+            throw new IncompleteCloudWatchConfig(
+                "Invalid CloudWatch log group name '$group': only letters, numbers, '_', '-', '/', '.' and '#' are allowed."
+            );
+        }
+
+        return $group;
+    }
+
+    /**
+     * Validate the log stream name against CloudWatch's naming rules.
+     *
+     * @param  array<string, mixed>  $config
+     *
+     * @throws IncompleteCloudWatchConfig
+     */
+    private static function streamName(array $config): string
+    {
+        $stream = self::requiredString($config, 'stream', 'log stream name');
+
+        if (mb_strlen($stream) > self::MAX_NAME_LENGTH) {
+            throw new IncompleteCloudWatchConfig('CloudWatch log stream name may not exceed '.self::MAX_NAME_LENGTH.' characters.');
+        }
+
+        if (str_contains($stream, ':') || str_contains($stream, '*')) {
+            throw new IncompleteCloudWatchConfig("Invalid CloudWatch log stream name '$stream': ':' and '*' are not allowed.");
+        }
+
+        return $stream;
+    }
+
+    /**
+     * Resolve the retention period.
+     *
+     * `null` (and an empty string, which is what `env()` yields for an unset
+     * variable) means "never expire". Anything else must be one of the periods
+     * CloudWatch actually accepts.
+     *
+     * @param  array<string, mixed>  $config
+     *
+     * @throws IncompleteCloudWatchConfig
+     */
+    private static function retention(array $config): ?int
+    {
+        $retention = array_key_exists('retention', $config) ? $config['retention'] : self::DEFAULT_RETENTION_DAYS;
+
+        // null / '' (an unset env var) / false all mean "never expire".
+        if ($retention === null || $retention === '' || $retention === false) {
+            return null;
+        }
+
+        if (! is_int($retention) && ! (is_string($retention) && ctype_digit($retention))) {
+            throw new IncompleteCloudWatchConfig('CloudWatch log retention must be an integer number of days or null.');
+        }
+
+        $retention = (int) $retention;
+
+        if (! in_array($retention, self::RETENTION_DAYS, true)) {
+            throw new IncompleteCloudWatchConfig(
+                "Invalid CloudWatch log retention '$retention'. Use null (never expire) or one of: ".implode(', ', self::RETENTION_DAYS).'.'
+            );
+        }
+
+        return $retention;
+    }
+
+    /**
+     * Resolve the batch size, enforcing the PutLogEvents ceiling up front
+     * rather than letting the handler throw an InvalidArgumentException.
+     *
+     * @param  array<string, mixed>  $config
+     *
+     * @throws IncompleteCloudWatchConfig
+     */
+    private static function batchSize(array $config): int
+    {
+        $batchSize = self::intValue($config, 'batch_size', self::DEFAULT_BATCH_SIZE);
+
+        if ($batchSize < 1 || $batchSize > self::MAX_BATCH_SIZE) {
+            throw new IncompleteCloudWatchConfig(
+                'CloudWatch batch size must be between 1 and '.self::MAX_BATCH_SIZE.", got '$batchSize'."
+            );
+        }
+
+        return $batchSize;
+    }
+
+    /**
+     * @param  array<string, mixed>  $config
+     *
+     * @throws IncompleteCloudWatchConfig
+     */
+    private static function rpsLimit(array $config): int
+    {
+        $rpsLimit = self::intValue($config, 'rps_limit', 0);
+
+        if ($rpsLimit < 0) {
+            throw new IncompleteCloudWatchConfig('CloudWatch rps_limit may not be negative.');
+        }
+
+        return $rpsLimit;
+    }
+
+    /**
+     * @param  array<string, mixed>  $config
+     *
+     * @throws IncompleteCloudWatchConfig
+     */
+    private static function cacheTtl(array $config): int
+    {
+        $ttl = self::intValue($config, 'cache_ttl', self::DEFAULT_CACHE_TTL);
+
+        if ($ttl < 1) {
+            throw new IncompleteCloudWatchConfig('CloudWatch cache_ttl must be a positive number of seconds.');
+        }
+
+        return $ttl;
+    }
+
+    /**
+     * Log group tags must be a flat string map; CloudWatch rejects anything else.
+     *
+     * @param  array<string, mixed>  $config
+     * @return array<string, string>
+     *
+     * @throws IncompleteCloudWatchConfig
+     */
+    private static function tags(array $config): array
+    {
+        $tags = $config['tags'] ?? [];
+
+        if (! is_array($tags)) {
+            throw new IncompleteCloudWatchConfig('Tags must be an array in CloudWatch configuration.');
+        }
+
+        $validated = [];
+
+        foreach ($tags as $key => $value) {
+            if (! is_string($key) || ! is_string($value)) {
+                throw new IncompleteCloudWatchConfig('CloudWatch log group tags must be a map of string keys to string values.');
+            }
+
+            $validated[$key] = $value;
+        }
+
+        return $validated;
+    }
+
+    /**
+     * Coerce a raw config value into a Monolog Level.
+     *
+     * Delegates to Monolog so every spelling Laravel's other channels accept
+     * (a Level, an int/numeric-string severity, or a level name in any case)
+     * behaves identically here.
+     *
+     * @throws IncompleteCloudWatchConfig
+     */
+    private static function level(mixed $value): Level
+    {
+        if ($value instanceof Level) {
+            return $value;
+        }
+
+        if (is_int($value) || (is_string($value) && preg_match('/^\\d+$/', trim($value)) === 1)) {
+            $level = Level::tryFrom((int) $value);
+
+            if ($level === null) {
+                throw new IncompleteCloudWatchConfig(
+                    "Invalid log level '$value' in CloudWatch configuration. Use one of: ".implode(', ', Level::VALUES).'.'
+                );
+            }
+
+            return $level;
+        }
+
+        if (is_string($value)) {
+            $level = match (strtolower(trim($value))) {
+                'debug' => Level::Debug,
+                'info' => Level::Info,
+                'notice' => Level::Notice,
+                'warning', 'warn' => Level::Warning,
+                'error', 'err' => Level::Error,
+                'critical', 'crit' => Level::Critical,
+                'alert' => Level::Alert,
+                'emergency', 'emerg', 'panic' => Level::Emergency,
+                default => null,
+            };
+
+            if ($level === null) {
+                throw new IncompleteCloudWatchConfig(
+                    "Invalid log level '$value' in CloudWatch configuration. Use one of: ".implode(', ', Level::NAMES).'.'
+                );
+            }
+
+            return $level;
+        }
+
+        throw new IncompleteCloudWatchConfig('Invalid log level in CloudWatch configuration.');
+    }
+
+    /**
+     * @param  array<string, mixed>  $config
+     *
+     * @throws IncompleteCloudWatchConfig
+     */
+    private static function bool(array $config, string $key, bool $default): bool
+    {
+        $value = $config[$key] ?? $default;
+
+        if (is_bool($value)) {
+            return $value;
+        }
+
+        $filtered = filter_var($value, FILTER_VALIDATE_BOOL, FILTER_NULL_ON_FAILURE);
+
+        if ($filtered === null) {
+            throw new IncompleteCloudWatchConfig("CloudWatch configuration value '$key' must be a boolean.");
+        }
+
+        return $filtered;
+    }
+
+    /**
+     * @param  array<string, mixed>  $config
+     *
+     * @throws IncompleteCloudWatchConfig
+     */
+    private static function intValue(array $config, string $key, int $default): int
+    {
+        $value = $config[$key] ?? $default;
+
+        if (is_int($value)) {
+            return $value;
+        }
+
+        if (is_string($value) && preg_match('/^-?\d+$/', trim($value)) === 1) {
+            return (int) trim($value);
+        }
+
+        throw new IncompleteCloudWatchConfig("CloudWatch configuration value '$key' must be an integer.");
+    }
+
+    /**
+     * Fetch a required, non-empty string configuration value.
+     *
+     * @param  array<string, mixed>  $config
+     *
+     * @throws IncompleteCloudWatchConfig
+     */
+    private static function requiredString(array $config, string $key, string $description): string
+    {
+        $value = $config[$key] ?? null;
+
+        if (is_int($value)) {
+            $value = (string) $value;
+        }
+
+        if (! is_string($value) || trim($value) === '') {
+            throw new IncompleteCloudWatchConfig("Missing or invalid $description in CloudWatch configuration.");
+        }
+
+        return $value;
+    }
+}
