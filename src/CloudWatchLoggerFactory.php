@@ -4,38 +4,45 @@ declare(strict_types=1);
 
 namespace Aporat\CloudWatchLogger;
 
+use Aporat\CloudWatchLogger\Cache\LaravelCacheItemPool;
 use Aporat\CloudWatchLogger\Exceptions\IncompleteCloudWatchConfig;
 use Aws\CloudWatchLogs\CloudWatchLogsClient;
+use Illuminate\Contracts\Cache\Factory as CacheFactory;
 use Illuminate\Contracts\Container\Container;
 use Monolog\Formatter\FormatterInterface;
 use Monolog\Formatter\LineFormatter;
-use Monolog\Level;
+use Monolog\Handler\HandlerInterface;
+use Monolog\Handler\WhatFailureGroupHandler;
 use Monolog\Logger;
+use Monolog\Processor\PsrLogMessageProcessor;
 use PhpNexus\Cwh\Handler\CloudWatch;
+use Psr\Cache\CacheItemPoolInterface;
+use Throwable;
 
 /**
  * Factory for creating CloudWatch-integrated Monolog logger instances.
  *
- * This factory is responsible for parsing a configuration array, constructing
- * the necessary AWS and Monolog components, and returning a fully configured
- * logger instance ready to send logs to AWS CloudWatch.
+ * Laravel resolves this out of the container for any logging channel declared
+ * with `'driver' => 'custom'` and `'via' => CloudWatchLoggerFactory::class`,
+ * then invokes it with that channel's configuration array.
  */
 final class CloudWatchLoggerFactory
 {
     /**
      * Default log retention period in days.
      */
-    public const int DEFAULT_RETENTION_DAYS = 14;
+    public const int DEFAULT_RETENTION_DAYS = CloudWatchConfig::DEFAULT_RETENTION_DAYS;
 
     /**
      * Default number of log entries to batch before sending.
      */
-    public const int DEFAULT_BATCH_SIZE = 10000;
+    public const int DEFAULT_BATCH_SIZE = CloudWatchConfig::DEFAULT_BATCH_SIZE;
 
     /**
      * Create a new CloudWatch logger factory instance.
      *
-     * @param  Container|null  $container  The Laravel container for dependency resolution.
+     * @param  Container|null  $container  The Laravel container, used to resolve
+     *                                     formatter classes and cache stores.
      */
     public function __construct(private readonly ?Container $container = null) {}
 
@@ -49,14 +56,17 @@ final class CloudWatchLoggerFactory
      */
     public function __invoke(array $config): Logger
     {
-        $configDto = CloudWatchConfig::fromArray($config);
+        $resolved = CloudWatchConfig::fromArray($config);
 
-        $client = $this->createClient($configDto);
-        $handler = $this->createHandler($client, $configDto);
-        $logger = $this->createLogger($configDto);
+        $handler = $this->createHandler($resolved);
+        $handler->setFormatter($this->resolveFormatter($resolved));
 
-        $handler->setFormatter($this->resolveFormatter($configDto));
-        $logger->pushHandler($handler);
+        $logger = new Logger($resolved->name);
+        $logger->pushHandler($this->wrapHandler($handler, $resolved));
+
+        if ($resolved->replacePlaceholders) {
+            $logger->pushProcessor(new PsrLogMessageProcessor);
+        }
 
         return $logger;
     }
@@ -71,26 +81,112 @@ final class CloudWatchLoggerFactory
 
     /**
      * Creates the Monolog CloudWatch handler.
+     *
+     * @throws IncompleteCloudWatchConfig
      */
-    private function createHandler(CloudWatchLogsClient $client, CloudWatchConfig $config): CloudWatch
+    private function createHandler(CloudWatchConfig $config): CloudWatch
     {
-        return new CloudWatch(
-            client: $client,
-            group: $config->group,
-            stream: $config->stream,
-            retention: $config->retention,
-            batchSize: $config->batchSize,
-            tags: $config->tags,
-            level: $config->level
-        );
+        try {
+            return new CloudWatch(
+                client: $this->createClient($config),
+                group: $config->group,
+                stream: $config->stream,
+                retention: $config->retention,
+                batchSize: $config->batchSize,
+                tags: $config->tags,
+                level: $config->level,
+                bubble: $config->bubble,
+                createGroup: $config->createGroup,
+                createStream: $config->createStream,
+                rpsLimit: $config->rpsLimit,
+                cacheItemPool: $this->resolveCachePool($config),
+                cacheItemTtl: $config->cacheTtl,
+            );
+        } catch (IncompleteCloudWatchConfig $e) {
+            throw $e;
+        } catch (Throwable $e) {
+            throw new IncompleteCloudWatchConfig('Unable to build the CloudWatch log handler: '.$e->getMessage(), previous: $e);
+        }
     }
 
     /**
-     * Creates the base Monolog Logger instance.
+     * Optionally wrap the handler so that a CloudWatch outage degrades into a
+     * dropped log line rather than an exception thrown from the caller's
+     * `Log::info()` — which, in a request path that logs its own failures,
+     * turns a handled error into a 500.
      */
-    private function createLogger(CloudWatchConfig $config): Logger
+    private function wrapHandler(HandlerInterface $handler, CloudWatchConfig $config): HandlerInterface
     {
-        return new Logger($config->name);
+        return $config->suppressFailures ? new WhatFailureGroupHandler([$handler]) : $handler;
+    }
+
+    /**
+     * Resolve the PSR-6 pool the handler uses to remember that the log group and
+     * stream already exist.
+     *
+     * Accepts a pool instance, `true` for the application's default cache store,
+     * a store name, a container binding or class name, or `false`/`null` to
+     * disable caching (the default).
+     *
+     * @throws IncompleteCloudWatchConfig
+     */
+    private function resolveCachePool(CloudWatchConfig $config): ?CacheItemPoolInterface
+    {
+        $cache = $config->cache;
+
+        if ($cache === null || $cache === false || $cache === '') {
+            return null;
+        }
+
+        // The handler refuses a pool it can never populate.
+        if (! $config->createGroup && ! $config->createStream) {
+            return null;
+        }
+
+        if ($cache instanceof CacheItemPoolInterface) {
+            return $cache;
+        }
+
+        // A class name is resolved as a pool; anything else names a cache store.
+        if (is_string($cache) && class_exists($cache)) {
+            return $this->assertPool($this->container?->make($cache) ?? new $cache, $cache);
+        }
+
+        if ($cache === true || is_string($cache)) {
+            return $this->laravelCachePool($cache === true ? null : $cache, $config);
+        }
+
+        throw new IncompleteCloudWatchConfig("Invalid 'cache' value in CloudWatch configuration.");
+    }
+
+    /**
+     * Build a pool backed by one of the application's cache stores.
+     *
+     * @throws IncompleteCloudWatchConfig
+     */
+    private function laravelCachePool(?string $store, CloudWatchConfig $config): CacheItemPoolInterface
+    {
+        if ($this->container === null || ! $this->container->bound(CacheFactory::class)) {
+            throw new IncompleteCloudWatchConfig(
+                "CloudWatch 'cache' requires the application cache; pass a PSR-6 CacheItemPoolInterface instead."
+            );
+        }
+
+        $factory = $this->container->make(CacheFactory::class);
+
+        return new LaravelCacheItemPool($factory->store($store), $config->group);
+    }
+
+    /**
+     * @throws IncompleteCloudWatchConfig
+     */
+    private function assertPool(mixed $pool, string $reference): CacheItemPoolInterface
+    {
+        if (! $pool instanceof CacheItemPoolInterface) {
+            throw new IncompleteCloudWatchConfig("CloudWatch 'cache' value '$reference' is not a PSR-6 ".CacheItemPoolInterface::class.'.');
+        }
+
+        return $pool;
     }
 
     /**
@@ -103,16 +199,25 @@ final class CloudWatchLoggerFactory
         $formatterConfig = $config->formatter;
 
         return match (true) {
-            is_null($formatterConfig) => new LineFormatter('%channel%: %level_name%: %message% %context% %extra%', null, false, true),
+            is_null($formatterConfig) => $this->defaultFormatter(),
             $formatterConfig instanceof FormatterInterface => $formatterConfig,
             is_string($formatterConfig) && is_subclass_of($formatterConfig, FormatterInterface::class) => $this->resolveFormatterClass($formatterConfig),
             is_string($formatterConfig) && $this->looksLikeClassName($formatterConfig) => throw new IncompleteCloudWatchConfig(
                 "Formatter class '$formatterConfig' does not exist or does not implement ".FormatterInterface::class.'.'
             ),
-            is_string($formatterConfig) => new LineFormatter($formatterConfig, null, false, true),
-            is_callable($formatterConfig) => $formatterConfig($config->originalConfig),
+            is_string($formatterConfig) && $formatterConfig !== '' => new LineFormatter($formatterConfig, null, false, true),
+            is_callable($formatterConfig) => $this->assertFormatter($formatterConfig($config->originalConfig)),
             default => throw new IncompleteCloudWatchConfig('Invalid formatter configuration for CloudWatch logs.'),
         };
+    }
+
+    /**
+     * The handler's own default, restated here so the formatter is always
+     * explicit and the `%extra%`/`%context%` behaviour is stable.
+     */
+    private function defaultFormatter(): LineFormatter
+    {
+        return new LineFormatter('%channel%: %level_name%: %message% %context% %extra%', null, false, true);
     }
 
     /**
@@ -129,171 +234,27 @@ final class CloudWatchLoggerFactory
      * Instantiates a formatter from a class string.
      *
      * @param  class-string<FormatterInterface>  $formatterClass
+     *
+     * @throws IncompleteCloudWatchConfig
      */
     private function resolveFormatterClass(string $formatterClass): FormatterInterface
     {
-        if ($this->container) {
-            return $this->container->make($formatterClass);
+        if ($this->container !== null) {
+            return $this->assertFormatter($this->container->make($formatterClass));
         }
 
-        return new $formatterClass;
+        return $this->assertFormatter(new $formatterClass);
     }
-}
-
-/**
- * A Data Transfer Object (DTO) for holding and validating CloudWatch configuration.
- *
- * This class centralizes configuration validation and provides type-safe,
- * readonly properties for the factory to consume.
- */
-final readonly class CloudWatchConfig
-{
-    /**
-     * @param  array<string, mixed>  $aws
-     * @param  array<string, string>  $tags
-     * @param  array<string, mixed>  $originalConfig
-     */
-    public function __construct(
-        public array $aws,
-        public string $group,
-        public string $stream,
-        public string $name,
-        public int $retention,
-        public int $batchSize,
-        public array $tags,
-        public Level $level,
-        public mixed $formatter,
-        public array $originalConfig
-    ) {}
 
     /**
-     * Create a new DTO instance from a raw configuration array.
-     *
-     * @param  array<string, mixed>  $config
-     *
      * @throws IncompleteCloudWatchConfig
      */
-    public static function fromArray(array $config): self
+    private function assertFormatter(mixed $formatter): FormatterInterface
     {
-        $tags = $config['tags'] ?? [];
-        if (! is_array($tags)) {
-            throw new IncompleteCloudWatchConfig('Tags must be an array in CloudWatch configuration.');
+        if (! $formatter instanceof FormatterInterface) {
+            throw new IncompleteCloudWatchConfig('The configured CloudWatch formatter did not resolve to a '.FormatterInterface::class.'.');
         }
 
-        return new self(
-            aws: self::validateAws($config),
-            group: self::validate($config, 'group', 'log group name'),
-            stream: self::validate($config, 'stream', 'log stream name'),
-            name: self::validate($config, 'name', 'logger name'),
-            retention: (int) ($config['retention'] ?? CloudWatchLoggerFactory::DEFAULT_RETENTION_DAYS),
-            batchSize: (int) ($config['batch_size'] ?? CloudWatchLoggerFactory::DEFAULT_BATCH_SIZE),
-            tags: $tags,
-            level: self::resolveLevel($config['level'] ?? Level::Debug),
-            formatter: $config['formatter'] ?? null,
-            originalConfig: $config
-        );
-    }
-
-    /**
-     * Coerce a raw config value into a Monolog Level enum.
-     *
-     * Accepts a Level instance, an int/numeric-string severity (100–600),
-     * or a level name ("debug", "ERROR", "Warning"). Anything else throws.
-     *
-     * @throws IncompleteCloudWatchConfig
-     */
-    private static function resolveLevel(mixed $value): Level
-    {
-        if ($value instanceof Level) {
-            return $value;
-        }
-
-        if (is_int($value) || (is_string($value) && ctype_digit(ltrim($value, '+')))) {
-            return Level::from((int) $value);
-        }
-
-        if (is_string($value)) {
-            $name = strtolower(trim($value));
-            $map = [
-                'debug' => Level::Debug,
-                'info' => Level::Info,
-                'notice' => Level::Notice,
-                'warning' => Level::Warning,
-                'error' => Level::Error,
-                'critical' => Level::Critical,
-                'alert' => Level::Alert,
-                'emergency' => Level::Emergency,
-            ];
-            if (isset($map[$name])) {
-                return $map[$name];
-            }
-        }
-
-        throw new IncompleteCloudWatchConfig('Invalid log level in CloudWatch configuration.');
-    }
-
-    /**
-     * Validate the AWS configuration sub-array.
-     *
-     * Ensures the required keys for constructing a CloudWatchLogsClient are
-     * present so misconfiguration surfaces as IncompleteCloudWatchConfig
-     * rather than an opaque AWS SDK error at first log call.
-     *
-     * @param  array<string, mixed>  $config
-     * @return array<string, mixed>
-     *
-     * @throws IncompleteCloudWatchConfig
-     */
-    private static function validateAws(array $config): array
-    {
-        $aws = self::validate($config, 'aws', 'AWS credentials');
-
-        if (! is_array($aws)) {
-            throw new IncompleteCloudWatchConfig('AWS configuration must be an array.');
-        }
-
-        foreach (['region', 'version'] as $key) {
-            if (! isset($aws[$key]) || ! is_string($aws[$key]) || trim($aws[$key]) === '') {
-                throw new IncompleteCloudWatchConfig("Missing or invalid AWS '$key' in CloudWatch configuration.");
-            }
-        }
-
-        $credentials = $aws['credentials'] ?? null;
-        if ($credentials !== null) {
-            if (! is_array($credentials)) {
-                throw new IncompleteCloudWatchConfig("AWS 'credentials' must be an array when provided.");
-            }
-            $key = is_string($credentials['key'] ?? null) ? trim($credentials['key']) : '';
-            $secret = is_string($credentials['secret'] ?? null) ? trim($credentials['secret']) : '';
-
-            // Partial credentials (one set, one empty) is clearly a config error.
-            // Both empty is intentional: defer to the AWS default credential chain
-            // (IAM role, env vars, ~/.aws/credentials) — drop the empty block so
-            // the SDK doesn't reject it.
-            if (($key === '') !== ($secret === '')) {
-                throw new IncompleteCloudWatchConfig("AWS credentials require both 'key' and 'secret' or neither.");
-            }
-            if ($key === '' && $secret === '') {
-                unset($aws['credentials']);
-            }
-        }
-
-        return $aws;
-    }
-
-    /**
-     * Validate and retrieve a required configuration value.
-     *
-     * @param  array<string, mixed>  $config  Configuration array
-     *
-     * @throws IncompleteCloudWatchConfig If the key is missing or empty.
-     */
-    private static function validate(array $config, string $key, string $description): mixed
-    {
-        if (! isset($config[$key]) || (is_string($config[$key]) && trim($config[$key]) === '') || (is_array($config[$key]) && empty($config[$key]))) {
-            throw new IncompleteCloudWatchConfig("Missing or invalid $description in CloudWatch configuration.");
-        }
-
-        return $config[$key];
+        return $formatter;
     }
 }
