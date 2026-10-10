@@ -6,6 +6,10 @@ namespace Aporat\CloudWatchLogger\Tests;
 
 use Aporat\CloudWatchLogger\CloudWatchConfig;
 use Aporat\CloudWatchLogger\Exceptions\IncompleteCloudWatchConfig;
+use Aws\CloudWatchLogs\CloudWatchLogsClient;
+use Aws\CommandInterface;
+use Aws\Result;
+use GuzzleHttp\Promise\Create;
 use Monolog\Level;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -28,8 +32,70 @@ final class CloudWatchConfigTest extends TestCase
         $this->assertTrue($config->createStream);
         $this->assertSame(0, $config->rpsLimit);
         $this->assertSame([], $config->tags);
-        $this->assertFalse($config->suppressFailures);
+        $this->assertTrue($config->suppressFailures);
         $this->assertFalse($config->replacePlaceholders);
+        $this->assertSame(CloudWatchConfig::DEFAULT_MAX_BUFFER_SIZE, $config->maxBufferSize);
+        $this->assertSame(CloudWatchConfig::DEFAULT_FLUSH_INTERVAL, $config->flushInterval);
+        $this->assertSame(CloudWatchConfig::DEFAULT_CIRCUIT_BREAKER, $config->circuitBreaker);
+        $this->assertSame(['connect_timeout' => 1, 'timeout' => 3], $config->aws['http']);
+        $this->assertSame(1, $config->aws['retries']);
+    }
+
+    #[Test]
+    public function client_defaults_never_override_explicit_values(): void
+    {
+        $config = CloudWatchConfig::fromArray($this->baseConfig([
+            'aws' => [
+                'region' => 'us-east-1',
+                'version' => 'latest',
+                'http' => ['timeout' => 10, 'verify' => false],
+                'retries' => 5,
+            ],
+        ]));
+
+        $this->assertSame(['connect_timeout' => 1, 'timeout' => 10, 'verify' => false], $config->aws['http']);
+        $this->assertSame(5, $config->aws['retries']);
+    }
+
+    #[Test]
+    public function the_default_client_actually_uses_the_short_timeouts(): void
+    {
+        $seen = null;
+        $config = CloudWatchConfig::fromArray($this->baseConfig());
+        $client = new CloudWatchLogsClient($config->aws + ['handler' => function (CommandInterface $command) use (&$seen) {
+            $seen = $command['@http'];
+
+            return Create::promiseFor(new Result([]));
+        }]);
+
+        $client->putLogEvents(['logGroupName' => 'g', 'logStreamName' => 's', 'logEvents' => [['timestamp' => 1, 'message' => 'x']]]);
+
+        $this->assertSame(1, $seen['connect_timeout']);
+        $this->assertSame(3, $seen['timeout']);
+    }
+
+    #[Test]
+    public function it_validates_the_buffering_options(): void
+    {
+        foreach ([
+            ['batch_size' => 100, 'max_buffer_size' => 99],
+            ['flush_interval' => -1],
+            ['circuit_breaker' => -5],
+            ['max_buffer_size' => 'lots'],
+        ] as $overrides) {
+            try {
+                CloudWatchConfig::fromArray($this->baseConfig($overrides));
+                $this->fail('Expected '.json_encode($overrides).' to be rejected.');
+            } catch (IncompleteCloudWatchConfig) {
+                $this->addToAssertionCount(1);
+            }
+        }
+    }
+
+    #[Test]
+    public function the_buffer_cap_defaults_to_at_least_the_batch_size(): void
+    {
+        $this->assertSame(10000, CloudWatchConfig::fromArray($this->baseConfig(['batch_size' => 10]))->maxBufferSize);
     }
 
     /**

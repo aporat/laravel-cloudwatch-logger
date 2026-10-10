@@ -90,15 +90,24 @@ return [
     | Batching & Throttling
     |--------------------------------------------------------------------------
     |
-    | 'batch_size' is how many events are buffered before a PutLogEvents call
-    | (1–10000). Long-lived processes such as queue workers should keep this
-    | low, or entries sit in memory until the buffer fills. The trade-off is
-    | API calls: CloudWatch throttles PutLogEvents per stream, and the handler
-    | reacts to a throttle by sleeping a second and retrying. Set 'rps_limit'
-    | to a non-zero value to self-throttle before that happens.
+    | 'batch_size'      — buffered events that trigger a PutLogEvents call
+    |                     (1–10000). Requests are split to respect the API
+    |                     limits whatever this is set to.
+    | 'flush_interval'  — seconds; a write flushes the buffer once its oldest
+    |                     event is this old. 0 disables.
+    | 'max_buffer_size' — hard cap on buffered events. While CloudWatch is
+    |                     unavailable the oldest events beyond it are dropped
+    |                     (and counted). Must be >= batch_size.
+    | 'rps_limit'       — max PutLogEvents calls per second from one process;
+    |                     0 disables.
+    |
+    | The buffer is also flushed when the process ends, after every queue job
+    | and after every Octane request/task/tick.
     |
     */
     'batch_size' => env('CLOUDWATCH_LOG_BATCH_SIZE', 10000),
+    'flush_interval' => env('CLOUDWATCH_LOG_FLUSH_INTERVAL', 10),
+    'max_buffer_size' => env('CLOUDWATCH_LOG_MAX_BUFFER_SIZE', 10000),
     'rps_limit' => env('CLOUDWATCH_LOG_RPS_LIMIT', 0),
 
     /*
@@ -135,11 +144,13 @@ return [
     | Failure Handling
     |--------------------------------------------------------------------------
     |
-    | When true, an unreachable CloudWatch (bad credentials, network failure)
-    | drops the log line instead of throwing out of the Log call. Worth enabling
-    | on paths that log their own errors, where a throwing logger turns a
-    | handled failure into a 500.
+    | 'suppress_failures' — when true (the default), a CloudWatch failure never
+    |     throws out of a Log call; it is reported with PHP's error_log()
+    |     instead. Set to false to have failed sends throw.
+    | 'circuit_breaker'   — seconds to stop sending after a failure. Records
+    |     logged meanwhile stay buffered (up to max_buffer_size). 0 disables.
     |
     */
-    'suppress_failures' => env('CLOUDWATCH_LOG_SUPPRESS_FAILURES', false),
+    'suppress_failures' => env('CLOUDWATCH_LOG_SUPPRESS_FAILURES', true),
+    'circuit_breaker' => env('CLOUDWATCH_LOG_CIRCUIT_BREAKER', 30),
 ];

@@ -6,18 +6,20 @@ namespace Aporat\CloudWatchLogger\Tests;
 
 use Aporat\CloudWatchLogger\CloudWatchLoggerFactory;
 use Aporat\CloudWatchLogger\Exceptions\IncompleteCloudWatchConfig;
+use Aporat\CloudWatchLogger\Handler\CloudWatchHandler;
+use Aporat\CloudWatchLogger\Tests\Support\FakeCloudWatchLogs;
+use Aws\CommandInterface;
+use GuzzleHttp\Promise\Create;
 use Illuminate\Contracts\Foundation\Application;
 use Mockery;
 use Monolog\Formatter\FormatterInterface;
 use Monolog\Formatter\JsonFormatter;
 use Monolog\Formatter\LineFormatter;
 use Monolog\Handler\HandlerInterface;
-use Monolog\Handler\WhatFailureGroupHandler;
 use Monolog\Level;
 use Monolog\Logger;
 use Monolog\LogRecord;
 use Monolog\Processor\PsrLogMessageProcessor;
-use PhpNexus\Cwh\Handler\CloudWatch;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
@@ -176,7 +178,7 @@ class LoggerTest extends TestCase
         ]));
 
         $handler = $logger->getHandlers()[0];
-        $this->assertInstanceOf(CloudWatch::class, $handler);
+        $this->assertInstanceOf(CloudWatchHandler::class, $handler);
 
         $this->assertSame(30, $this->handlerProperty($handler, 'retention'));
         $this->assertSame(25, $this->handlerProperty($handler, 'batchSize'));
@@ -197,26 +199,28 @@ class LoggerTest extends TestCase
     }
 
     /**
-     * With suppress_failures on, an unreachable CloudWatch must drop the record
-     * rather than throw out of the caller's Log:: call — otherwise a request
-     * path that logs its own errors turns a handled failure into a 500.
+     * suppress_failures is on by default: an unreachable CloudWatch must not
+     * throw out of the caller's Log:: call — otherwise a request path that
+     * logs its own errors turns a handled failure into a 500. The failure is
+     * reported through error_log(), never through a logger.
      */
     #[Test]
-    public function it_wraps_the_handler_so_failures_do_not_escape(): void
+    public function failures_are_suppressed_and_reported_to_error_log_by_default(): void
     {
-        $logger = ($this->factory)($this->unreachableConfig(['suppress_failures' => true]));
+        $logger = ($this->factory)($this->unreachableConfig());
 
-        $this->assertInstanceOf(WhatFailureGroupHandler::class, $logger->getHandlers()[0]);
+        $this->assertInstanceOf(CloudWatchHandler::class, $logger->getHandlers()[0]);
 
-        $logger->error('boom');
+        $errorLog = $this->captureErrorLog(fn () => $logger->error('boom'));
 
-        $this->assertTrue(true, 'A failing CloudWatch write must not throw.');
+        $this->assertStringContainsString('[cloudwatch-logger]', $errorLog);
+        $this->assertStringContainsString('Failed to connect', $errorLog);
     }
 
     #[Test]
     public function a_failing_write_throws_when_failures_are_not_suppressed(): void
     {
-        $logger = ($this->factory)($this->unreachableConfig());
+        $logger = ($this->factory)($this->unreachableConfig(['suppress_failures' => false]));
 
         $this->expectException(Throwable::class);
 
@@ -224,11 +228,49 @@ class LoggerTest extends TestCase
     }
 
     #[Test]
-    public function it_does_not_wrap_the_handler_by_default(): void
+    public function it_does_not_wrap_the_handler(): void
     {
         $logger = ($this->factory)($this->getBaseConfig());
 
-        $this->assertInstanceOf(CloudWatch::class, $logger->getHandlers()[0]);
+        $this->assertInstanceOf(CloudWatchHandler::class, $logger->getHandlers()[0]);
+    }
+
+    #[Test]
+    public function it_passes_the_buffering_options_through(): void
+    {
+        $logger = ($this->factory)($this->getBaseConfig([
+            'batch_size' => 50,
+            'max_buffer_size' => 500,
+            'flush_interval' => 7,
+            'circuit_breaker' => 0,
+            'suppress_failures' => false,
+        ]));
+
+        $handler = $logger->getHandlers()[0];
+        $this->assertSame(500, $this->handlerProperty($handler, 'maxBufferSize'));
+        $this->assertSame(7, $this->handlerProperty($handler, 'flushInterval'));
+        $this->assertSame(0, $this->handlerProperty($handler, 'circuitBreakerSeconds'));
+        $this->assertFalse($this->handlerProperty($handler, 'suppressFailures'));
+    }
+
+    /**
+     * End to end through the factory: the event reaches PutLogEvents with an
+     * integer millisecond timestamp.
+     */
+    #[Test]
+    public function a_logged_record_reaches_put_log_events(): void
+    {
+        $aws = new FakeCloudWatchLogs;
+        $logger = ($this->factory)($this->getBaseConfig([
+            'aws' => ['region' => 'us-east-1', 'version' => 'latest', 'handler' => $aws, 'credentials' => ['key' => 'k', 'secret' => 's']],
+            'batch_size' => 1,
+            'formatter' => '%level_name%: %message%',
+        ]));
+
+        $logger->error('hello cloudwatch');
+
+        $this->assertSame(['ERROR: hello cloudwatch'], $aws->delivered());
+        $this->assertIsInt($aws->calls('PutLogEvents')[0]['args']['logEvents'][0]['timestamp']);
     }
 
     #[Test]
@@ -279,7 +321,13 @@ class LoggerTest extends TestCase
             'aws' => [
                 'region' => 'us-east-1',
                 'version' => 'latest',
-                'endpoint' => 'http://127.0.0.1:1',
+                'handler' => new class
+                {
+                    public function __invoke(CommandInterface $command): mixed
+                    {
+                        return Create::rejectionFor(FakeCloudWatchLogs::connectionError($command->getName()));
+                    }
+                },
                 'retries' => 0,
                 'credentials' => ['key' => 'key', 'secret' => 'secret'],
             ],
@@ -288,10 +336,27 @@ class LoggerTest extends TestCase
         ], $overrides));
     }
 
+    private function captureErrorLog(callable $callback): string
+    {
+        $file = tempnam(sys_get_temp_dir(), 'cwl');
+        $previous = ini_set('error_log', (string) $file);
+
+        try {
+            $callback();
+        } finally {
+            ini_set('error_log', (string) $previous);
+        }
+
+        $contents = (string) file_get_contents((string) $file);
+        @unlink((string) $file);
+
+        return $contents;
+    }
+
     private function formatterOf(Logger $logger): FormatterInterface
     {
         $handler = $logger->getHandlers()[0];
-        $this->assertInstanceOf(CloudWatch::class, $handler);
+        $this->assertInstanceOf(CloudWatchHandler::class, $handler);
 
         return $handler->getFormatter();
     }

@@ -8,10 +8,10 @@ use Aporat\CloudWatchLogger\Cache\LaravelCacheItemPool;
 use Aporat\CloudWatchLogger\CloudWatchLoggerFactory;
 use Aporat\CloudWatchLogger\CloudWatchLoggerServiceProvider;
 use Aporat\CloudWatchLogger\Exceptions\IncompleteCloudWatchConfig;
+use Aporat\CloudWatchLogger\Handler\CloudWatchHandler;
 use Illuminate\Support\Facades\Log;
 use Monolog\Logger;
 use Orchestra\Testbench\TestCase;
-use PhpNexus\Cwh\Handler\CloudWatch;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
 use ReflectionProperty;
@@ -64,7 +64,7 @@ class CloudWatchLoggerServiceProviderTest extends TestCase
         $logger = Log::channel('cloudwatch')->getLogger();
 
         $this->assertInstanceOf(Logger::class, $logger);
-        $this->assertInstanceOf(CloudWatch::class, $logger->getHandlers()[0]);
+        $this->assertInstanceOf(CloudWatchHandler::class, $logger->getHandlers()[0]);
     }
 
     /**
@@ -147,7 +147,7 @@ class CloudWatchLoggerServiceProviderTest extends TestCase
 
         $handler = Log::channel('cw-broken')->getLogger()->getHandlers()[0];
 
-        $this->assertNotInstanceOf(CloudWatch::class, $handler);
+        $this->assertNotInstanceOf(CloudWatchHandler::class, $handler);
     }
 
     #[Test]

@@ -39,6 +39,44 @@ final readonly class CloudWatchConfig
     public const int DEFAULT_CACHE_TTL = 300;
 
     /**
+     * Default cap on buffered events; the oldest are dropped beyond it.
+     */
+    public const int DEFAULT_MAX_BUFFER_SIZE = 10000;
+
+    /**
+     * Default age, in seconds, after which a write flushes the buffer.
+     */
+    public const int DEFAULT_FLUSH_INTERVAL = 10;
+
+    /**
+     * Default number of seconds to stop sending after a failed request.
+     */
+    public const int DEFAULT_CIRCUIT_BREAKER = 30;
+
+    /**
+     * HTTP options merged under the user's `aws.http`, so an unreachable
+     * endpoint costs about a second instead of minutes per request.
+     *
+     * @var array<string, int|float>
+     */
+    public const array DEFAULT_HTTP_OPTIONS = [
+        'connect_timeout' => 1,
+        'timeout' => 3,
+    ];
+
+    /**
+     * Retries used when `aws.retries` is not set: one retry (two attempts).
+     *
+     * Deliberately an integer rather than `['mode' => 'standard', ...]`: the
+     * SDK hands the client's `retries` value to its default credential
+     * provider, and the instance-profile (IMDS) provider compares an array
+     * `retries` as "always more attempts left", so off EC2 with no other
+     * credentials an array value makes the first request retry IMDS forever
+     * (verified with aws/aws-sdk-php 3.400). An integer is safe for both.
+     */
+    public const int DEFAULT_RETRIES = 1;
+
+    /**
      * Maximum length of a log group or log stream name.
      */
     private const int MAX_NAME_LENGTH = 512;
@@ -68,6 +106,9 @@ final readonly class CloudWatchConfig
         public string $name,
         public ?int $retention,
         public int $batchSize,
+        public int $maxBufferSize,
+        public int $flushInterval,
+        public int $circuitBreaker,
         public array $tags,
         public Level $level,
         public bool $bubble,
@@ -91,13 +132,23 @@ final readonly class CloudWatchConfig
      */
     public static function fromArray(array $config): self
     {
+        $aws = self::aws($config);
+        $group = self::groupName($config);
+        $stream = self::streamName($config);
+        $name = self::requiredString($config, 'name', 'logger name');
+        $retention = self::retention($config);
+        $batchSize = self::batchSize($config);
+
         return new self(
-            aws: self::aws($config),
-            group: self::groupName($config),
-            stream: self::streamName($config),
-            name: self::requiredString($config, 'name', 'logger name'),
-            retention: self::retention($config),
-            batchSize: self::batchSize($config),
+            aws: $aws,
+            group: $group,
+            stream: $stream,
+            name: $name,
+            retention: $retention,
+            batchSize: $batchSize,
+            maxBufferSize: self::maxBufferSize($config, $batchSize),
+            flushInterval: self::nonNegativeInt($config, 'flush_interval', self::DEFAULT_FLUSH_INTERVAL),
+            circuitBreaker: self::nonNegativeInt($config, 'circuit_breaker', self::DEFAULT_CIRCUIT_BREAKER),
             tags: self::tags($config),
             level: self::level($config['level'] ?? Level::Debug),
             bubble: self::bool($config, 'bubble', true),
@@ -106,7 +157,7 @@ final readonly class CloudWatchConfig
             rpsLimit: self::rpsLimit($config),
             cache: $config['cache'] ?? null,
             cacheTtl: self::cacheTtl($config),
-            suppressFailures: self::bool($config, 'suppress_failures', false),
+            suppressFailures: self::bool($config, 'suppress_failures', true),
             replacePlaceholders: self::bool($config, 'replace_placeholders', false),
             formatter: $config['formatter'] ?? null,
             originalConfig: $config,
@@ -135,6 +186,8 @@ final readonly class CloudWatchConfig
             }
         }
 
+        $aws = self::withClientDefaults($aws);
+
         $credentials = $aws['credentials'] ?? null;
 
         if ($credentials === null || $credentials instanceof CredentialsInterface || is_callable($credentials)) {
@@ -158,6 +211,27 @@ final readonly class CloudWatchConfig
 
         if ($key === '') {
             unset($aws['credentials']);
+        }
+
+        return $aws;
+    }
+
+    /**
+     * Apply the package's client defaults underneath the user's values.
+     *
+     * @param  array<string, mixed>  $aws
+     * @return array<string, mixed>
+     */
+    private static function withClientDefaults(array $aws): array
+    {
+        $http = $aws['http'] ?? [];
+
+        if (is_array($http)) {
+            $aws['http'] = array_replace(self::DEFAULT_HTTP_OPTIONS, $http);
+        }
+
+        if (! array_key_exists('retries', $aws) || $aws['retries'] === null) {
+            $aws['retries'] = self::DEFAULT_RETRIES;
         }
 
         return $aws;
@@ -265,6 +339,40 @@ final readonly class CloudWatchConfig
         }
 
         return $batchSize;
+    }
+
+    /**
+     * @param  array<string, mixed>  $config
+     *
+     * @throws IncompleteCloudWatchConfig
+     */
+    private static function maxBufferSize(array $config, int $batchSize): int
+    {
+        $max = self::intValue($config, 'max_buffer_size', max(self::DEFAULT_MAX_BUFFER_SIZE, $batchSize));
+
+        if ($max < $batchSize) {
+            throw new IncompleteCloudWatchConfig(
+                "CloudWatch max_buffer_size ('$max') may not be smaller than batch_size ('$batchSize')."
+            );
+        }
+
+        return $max;
+    }
+
+    /**
+     * @param  array<string, mixed>  $config
+     *
+     * @throws IncompleteCloudWatchConfig
+     */
+    private static function nonNegativeInt(array $config, string $key, int $default): int
+    {
+        $value = self::intValue($config, $key, $default);
+
+        if ($value < 0) {
+            throw new IncompleteCloudWatchConfig("CloudWatch $key may not be negative.");
+        }
+
+        return $value;
     }
 
     /**

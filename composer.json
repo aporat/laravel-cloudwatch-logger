@@ -23,12 +23,12 @@
     "require": {
         "php": "^8.4",
         "ext-json": "*",
+        "ext-mbstring": "*",
         "aws/aws-sdk-php": "^3.300",
         "illuminate/contracts": "^12.0 || ^13.0",
         "illuminate/log": "^12.0 || ^13.0",
         "illuminate/support": "^12.0 || ^13.0",
         "monolog/monolog": "^3.6",
-        "phpnexus/cwh": "^3.2",
         "psr/cache": "^2.0 || ^3.0"
     },
     "require-dev": {
@@ -80,6 +80,7 @@
     "minimum-stability": "dev",
     "prefer-stable": true,
     "suggest": {
-        "illuminate/cache": "Allows 'cache' => true to skip the per-process DescribeLogGroups/DescribeLogStreams calls."
+        "illuminate/cache": "Allows 'cache' => true to skip the per-process DescribeLogGroups/DescribeLogStreams calls.",
+        "laravel/octane": "Buffered events are flushed after every Octane request, task and tick."
     }
 }
