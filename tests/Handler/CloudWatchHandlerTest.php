@@ -11,15 +11,22 @@ use Aporat\CloudWatchLogger\Tests\Support\FakeCloudWatchLogs;
 use Aporat\CloudWatchLogger\Tests\Support\ManualClock;
 use Aws\CloudWatchLogs\CloudWatchLogsClient;
 use Aws\CloudWatchLogs\Exception\CloudWatchLogsException;
+use Aws\Command;
+use Aws\Exception\CredentialsException;
 use DateTimeImmutable;
+use GuzzleHttp\Psr7\Response;
 use Illuminate\Cache\ArrayStore;
 use Illuminate\Cache\Repository;
+use Monolog\Formatter\FormatterInterface;
 use Monolog\Formatter\LineFormatter;
 use Monolog\Level;
 use Monolog\LogRecord;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
+use Psr\Cache\CacheItemInterface;
+use Psr\Cache\CacheItemPoolInterface;
 
 #[CoversClass(CloudWatchHandler::class)]
 #[CoversClass(EventBatcher::class)]
@@ -447,6 +454,164 @@ final class CloudWatchHandlerTest extends TestCase
     }
 
     /**
+     * @return iterable<string, array{\Throwable}>
+     */
+    public static function retryableErrors(): iterable
+    {
+        yield 'credentials' => [new CredentialsException('no credentials')];
+        yield 'throttling' => [FakeCloudWatchLogs::error('ThrottlingException')];
+        yield 'http 500' => [FakeCloudWatchLogs::error('InternalServerError', context: ['response' => new Response(500)])];
+        yield 'http 429' => [FakeCloudWatchLogs::error('SlowDown', context: ['response' => new Response(429)])];
+        yield 'no response, no code' => [new CloudWatchLogsException('timed out', new Command('PutLogEvents'))];
+    }
+
+    #[Test]
+    #[DataProvider('retryableErrors')]
+    public function transient_errors_keep_the_events(\Throwable $error): void
+    {
+        $this->aws->failWith = fn (string $name) => $name === 'PutLogEvents' ? $error : null;
+        $handler = $this->handler(batchSize: 1);
+
+        $handler->handle($this->record('kept'));
+
+        $this->assertSame(1, $handler->getBufferedEventCount());
+        $this->assertSame(0, $handler->getDroppedEventCount());
+        $this->assertStringContainsString('will retry', $this->reported[0]);
+    }
+
+    #[Test]
+    public function an_http_4xx_without_a_known_code_is_not_retried(): void
+    {
+        $this->aws->failWith = fn (string $name) => $name === 'PutLogEvents'
+            ? FakeCloudWatchLogs::error('AccessDeniedException', context: ['response' => new Response(400)])
+            : null;
+        $handler = $this->handler(batchSize: 1);
+
+        $handler->handle($this->record('dropped'));
+
+        $this->assertSame(0, $handler->getBufferedEventCount());
+        $this->assertSame(1, $handler->getDroppedEventCount());
+    }
+
+    #[Test]
+    public function a_failure_while_formatting_is_suppressed_and_reported(): void
+    {
+        $handler = $this->handler(batchSize: 1);
+        $handler->setFormatter(new class implements FormatterInterface
+        {
+            public function format(LogRecord $record): mixed
+            {
+                throw new \RuntimeException('formatter exploded');
+            }
+
+            public function formatBatch(array $records): mixed
+            {
+                return [];
+            }
+        });
+
+        $this->assertFalse($handler->handle($this->record('x')));
+        $this->assertStringContainsString('formatter exploded', $this->reported[0]);
+    }
+
+    #[Test]
+    public function close_and_reset_rethrow_when_failures_are_not_suppressed(): void
+    {
+        $this->aws->failWith = fn (string $name) => $name === 'PutLogEvents' ? FakeCloudWatchLogs::connectionError() : null;
+
+        foreach (['close', 'reset'] as $method) {
+            $handler = $this->handler(batchSize: 100, circuitBreaker: 0, suppressFailures: false);
+            $handler->handle($this->record('x'));
+
+            try {
+                $handler->{$method}();
+                $this->fail("$method() should rethrow.");
+            } catch (CloudWatchLogsException) {
+                $this->assertSame(1, $handler->getBufferedEventCount());
+            }
+        }
+    }
+
+    #[Test]
+    public function a_failing_cache_pool_degrades_to_describe_calls(): void
+    {
+        $pool = new class implements CacheItemPoolInterface
+        {
+            public function getItem(string $key): CacheItemInterface
+            {
+                throw new \RuntimeException('cache down');
+            }
+
+            public function getItems(array $keys = []): iterable
+            {
+                return [];
+            }
+
+            public function hasItem(string $key): bool
+            {
+                return false;
+            }
+
+            public function clear(): bool
+            {
+                return false;
+            }
+
+            public function deleteItem(string $key): bool
+            {
+                return false;
+            }
+
+            public function deleteItems(array $keys): bool
+            {
+                return false;
+            }
+
+            public function save(CacheItemInterface $item): bool
+            {
+                return false;
+            }
+
+            public function saveDeferred(CacheItemInterface $item): bool
+            {
+                return false;
+            }
+
+            public function commit(): bool
+            {
+                return false;
+            }
+        };
+        $handler = $this->handler(batchSize: 1, cache: $pool);
+
+        $handler->handle($this->record('x'));
+
+        $this->assertSame([], $this->reported);
+        $this->assertSame(['x'], $this->aws->delivered());
+        $this->assertContains('DescribeLogGroups', $this->aws->names());
+    }
+
+    #[Test]
+    public function the_default_formatter_matches_the_documented_template(): void
+    {
+        $client = new CloudWatchLogsClient(['region' => 'us-east-1', 'version' => 'latest', 'handler' => $this->aws, 'credentials' => ['key' => 'k', 'secret' => 's']]);
+        $formatter = (new CloudWatchHandler($client, 'app', 'web'))->getFormatter();
+
+        $this->assertInstanceOf(LineFormatter::class, $formatter);
+        $this->assertSame('test: ERROR: hi  ', $formatter->format($this->record('hi')));
+    }
+
+    #[Test]
+    public function empty_messages_produce_no_events_and_tiny_limits_still_terminate(): void
+    {
+        $this->assertSame([], EventBatcher::toEvents('', 1));
+
+        // A limit narrower than one character falls back to raw bytes rather than looping.
+        $events = EventBatcher::toEvents('é', 1, 1);
+        $this->assertSame("\xC3\xA9", implode('', array_column($events, 'message')));
+    }
+
+    /**
      * @param  array<string, string>  $tags
      */
     private function handler(
@@ -459,7 +624,7 @@ final class CloudWatchHandlerTest extends TestCase
         string $group = 'app',
         string $stream = 'web',
         array $tags = [],
-        ?LaravelCacheItemPool $cache = null,
+        ?CacheItemPoolInterface $cache = null,
         Level $level = Level::Debug,
     ): CloudWatchHandler {
         $client = new CloudWatchLogsClient([
