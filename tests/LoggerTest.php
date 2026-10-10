@@ -37,6 +37,7 @@ class LoggerTest extends TestCase
     {
         parent::setUp();
         $this->app = Mockery::mock(Application::class);
+        $this->app->shouldReceive('bound')->andReturn(false)->byDefault();
         $this->factory = new CloudWatchLoggerFactory($this->app);
     }
 

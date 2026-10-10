@@ -8,11 +8,15 @@ use Aporat\CloudWatchLogger\Cache\LaravelCacheItemPool;
 use Aporat\CloudWatchLogger\Exceptions\IncompleteCloudWatchConfig;
 use Aporat\CloudWatchLogger\Handler\CloudWatchHandler;
 use Aws\CloudWatchLogs\CloudWatchLogsClient;
+use Closure;
 use Illuminate\Contracts\Cache\Factory as CacheFactory;
 use Illuminate\Contracts\Container\Container;
+use Illuminate\Log\Logger as IlluminateLogger;
+use LogicException;
 use Monolog\Formatter\FormatterInterface;
 use Monolog\Formatter\LineFormatter;
 use Monolog\Logger;
+use Monolog\LogRecord;
 use Monolog\Processor\PsrLogMessageProcessor;
 use Psr\Cache\CacheItemPoolInterface;
 use Throwable;
@@ -54,7 +58,7 @@ final class CloudWatchLoggerFactory
      */
     public function __invoke(array $config): Logger
     {
-        $resolved = CloudWatchConfig::fromArray($config);
+        $resolved = $this->resolveConfig($config);
 
         $handler = $this->createHandler($resolved);
         $handler->setFormatter($this->resolveFormatter($resolved));
@@ -70,11 +74,115 @@ final class CloudWatchLoggerFactory
     }
 
     /**
-     * Creates the AWS CloudWatch Logs client.
+     * Validate a raw channel configuration, using the application's
+     * environment for the {env} stream placeholder.
+     *
+     * @param  array<string, mixed>  $config
+     *
+     * @throws IncompleteCloudWatchConfig
      */
-    private function createClient(CloudWatchConfig $config): CloudWatchLogsClient
+    public function resolveConfig(array $config): CloudWatchConfig
+    {
+        $resolved = CloudWatchConfig::fromArray($config, $this->environment());
+
+        if ($resolved->fallbackChannel !== null) {
+            $this->assertFallbackIsNotCloudWatch($resolved->fallbackChannel);
+        }
+
+        return $resolved;
+    }
+
+    /**
+     * Creates the AWS CloudWatch Logs client for a resolved configuration.
+     */
+    public function createClient(CloudWatchConfig $config): CloudWatchLogsClient
     {
         return new CloudWatchLogsClient($config->aws);
+    }
+
+    private function environment(): ?string
+    {
+        if ($this->container === null || ! $this->container->bound('config')) {
+            return null;
+        }
+
+        $env = $this->container->make('config')->get('app.env');
+
+        return is_string($env) && $env !== '' ? $env : null;
+    }
+
+    /**
+     * Refuse a fallback channel that is itself a CloudWatch channel, or a
+     * stack containing one: that would send the records straight back here.
+     * (The handler also guards against this at runtime.)
+     *
+     * @throws IncompleteCloudWatchConfig
+     */
+    private function assertFallbackIsNotCloudWatch(string $channel, int $depth = 0): void
+    {
+        if ($depth > 5 || $this->container === null || ! $this->container->bound('config')) {
+            return;
+        }
+
+        $definition = $this->container->make('config')->get("logging.channels.$channel");
+
+        if (! is_array($definition)) {
+            return;
+        }
+
+        if (($definition['via'] ?? null) === self::class) {
+            throw new IncompleteCloudWatchConfig("CloudWatch 'fallback_channel' '$channel' is itself a CloudWatch channel.");
+        }
+
+        if (($definition['driver'] ?? null) === 'stack') {
+            foreach ((array) ($definition['channels'] ?? []) as $member) {
+                if (is_string($member)) {
+                    $this->assertFallbackIsNotCloudWatch($member, $depth + 1);
+                }
+            }
+        }
+    }
+
+    /**
+     * Build the closure the handler calls with records it could not deliver.
+     *
+     * The channel is resolved lazily, on first use, through Laravel's log
+     * manager. Records keep their original level, message, context and time;
+     * the reason is added to the context under `cloudwatch_fallback`.
+     *
+     * @return (Closure(list<LogRecord>, string): void)|null
+     */
+    private function fallback(CloudWatchConfig $config): ?Closure
+    {
+        $channel = $config->fallbackChannel;
+        $container = $this->container;
+
+        if ($channel === null || $container === null) {
+            return null;
+        }
+
+        return static function (array $records, string $reason) use ($channel, $container): void {
+            $logger = $container->make('log')->channel($channel);
+            $monolog = $logger instanceof IlluminateLogger ? $logger->getLogger() : $logger;
+
+            if ($monolog instanceof Logger) {
+                foreach ($monolog->getHandlers() as $handler) {
+                    if ($handler instanceof CloudWatchHandler) {
+                        throw new LogicException("Fallback channel '$channel' writes to CloudWatch; refusing to forward.");
+                    }
+                }
+            }
+
+            foreach ($records as $record) {
+                $context = $record->context + ['cloudwatch_fallback' => $reason];
+
+                if ($monolog instanceof Logger) {
+                    $monolog->addRecord($record->level, $record->message, $context, $record->datetime);
+                } else {
+                    $logger->log($record->level->toPsrLogLevel(), $record->message, $context);
+                }
+            }
+        };
     }
 
     /**
@@ -84,31 +192,46 @@ final class CloudWatchLoggerFactory
      */
     private function createHandler(CloudWatchConfig $config): CloudWatchHandler
     {
+        $arguments = [
+            'client' => $this->createClient($config),
+            'group' => $config->group,
+            'stream' => $config->stream,
+            'retention' => $config->retention,
+            'batchSize' => $config->batchSize,
+            'tags' => $config->tags,
+            'level' => $config->level,
+            'bubble' => $config->bubble,
+            'createGroup' => $config->createGroup,
+            'createStream' => $config->createStream,
+            'rpsLimit' => $config->rpsLimit,
+            'cacheItemPool' => $this->resolveCachePool($config),
+            'cacheItemTtl' => $config->cacheTtl,
+            'maxBufferSize' => $config->maxBufferSize,
+            'flushInterval' => $config->flushInterval,
+            'circuitBreakerSeconds' => $config->circuitBreaker,
+            'suppressFailures' => $config->suppressFailures,
+            'enforceGroupSettings' => $config->enforceGroupSettings,
+            'streamDateFormat' => $config->streamDateFormat,
+            'streamPlaceholders' => ['env' => $config->environment],
+            'fallback' => $this->fallback($config),
+        ];
+
+        // Laravel's `handler_with`: named constructor arguments that override
+        // (or, for a `handler` subclass, extend) the computed ones.
+        $arguments = array_replace($arguments, $config->handlerWith);
+        $class = $config->handlerClass ?? CloudWatchHandler::class;
+
         try {
-            return new CloudWatchHandler(
-                client: $this->createClient($config),
-                group: $config->group,
-                stream: $config->stream,
-                retention: $config->retention,
-                batchSize: $config->batchSize,
-                tags: $config->tags,
-                level: $config->level,
-                bubble: $config->bubble,
-                createGroup: $config->createGroup,
-                createStream: $config->createStream,
-                rpsLimit: $config->rpsLimit,
-                cacheItemPool: $this->resolveCachePool($config),
-                cacheItemTtl: $config->cacheTtl,
-                maxBufferSize: $config->maxBufferSize,
-                flushInterval: $config->flushInterval,
-                circuitBreakerSeconds: $config->circuitBreaker,
-                suppressFailures: $config->suppressFailures,
-            );
-        } catch (IncompleteCloudWatchConfig $e) {
-            throw $e;
+            // A custom handler class is resolved through the container (as
+            // Laravel does for `handler`), so it can declare extra dependencies.
+            $handler = $this->container !== null && $class !== CloudWatchHandler::class
+                ? $this->container->make($class, $arguments)
+                : new $class(...$arguments);
         } catch (Throwable $e) {
             throw new IncompleteCloudWatchConfig('Unable to build the CloudWatch log handler: '.$e->getMessage(), previous: $e);
         }
+
+        return $handler;
     }
 
     /**
@@ -130,7 +253,7 @@ final class CloudWatchLoggerFactory
         }
 
         // Nothing would ever be written to the pool.
-        if (! $config->createGroup && ! $config->createStream) {
+        if (! $config->createGroup && ! $config->createStream && ! $config->enforceGroupSettings) {
             return null;
         }
 
@@ -189,10 +312,14 @@ final class CloudWatchLoggerFactory
     {
         $formatterConfig = $config->formatter;
 
+        if ($config->formatterWith !== [] && ! (is_string($formatterConfig) && is_subclass_of($formatterConfig, FormatterInterface::class))) {
+            throw new IncompleteCloudWatchConfig("CloudWatch 'formatter_with' requires 'formatter' to be a ".FormatterInterface::class.' class name.');
+        }
+
         return match (true) {
-            is_null($formatterConfig) => $this->defaultFormatter(),
+            is_null($formatterConfig), $formatterConfig === 'default' => $this->defaultFormatter(),
             $formatterConfig instanceof FormatterInterface => $formatterConfig,
-            is_string($formatterConfig) && is_subclass_of($formatterConfig, FormatterInterface::class) => $this->resolveFormatterClass($formatterConfig),
+            is_string($formatterConfig) && is_subclass_of($formatterConfig, FormatterInterface::class) => $this->resolveFormatterClass($formatterConfig, $config->formatterWith),
             is_string($formatterConfig) && $this->looksLikeClassName($formatterConfig) => throw new IncompleteCloudWatchConfig(
                 "Formatter class '$formatterConfig' does not exist or does not implement ".FormatterInterface::class.'.'
             ),
@@ -225,16 +352,25 @@ final class CloudWatchLoggerFactory
      * Instantiates a formatter from a class string.
      *
      * @param  class-string<FormatterInterface>  $formatterClass
+     * @param  array<array-key, mixed>  $with
      *
      * @throws IncompleteCloudWatchConfig
      */
-    private function resolveFormatterClass(string $formatterClass): FormatterInterface
+    private function resolveFormatterClass(string $formatterClass, array $with = []): FormatterInterface
     {
-        if ($this->container !== null) {
-            return $this->assertFormatter($this->container->make($formatterClass));
+        try {
+            // Like Laravel's `formatter_with`: named arguments go through the
+            // container; a positional list is passed to the constructor as is.
+            $formatter = $this->container !== null && ! array_is_list($with)
+                ? $this->container->make($formatterClass, $with)
+                : ($this->container !== null && $with === []
+                    ? $this->container->make($formatterClass)
+                    : new $formatterClass(...$with));
+        } catch (Throwable $e) {
+            throw new IncompleteCloudWatchConfig("Unable to build the CloudWatch formatter '$formatterClass': ".$e->getMessage(), previous: $e);
         }
 
-        return $this->assertFormatter(new $formatterClass);
+        return $this->assertFormatter($formatter);
     }
 
     /**

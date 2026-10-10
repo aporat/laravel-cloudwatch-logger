@@ -89,8 +89,10 @@ final class EventBatcher
      * their logging order) and split them into batches that each satisfy
      * every PutLogEvents limit.
      *
-     * @param  list<array{timestamp: int, message: string}>  $events
-     * @return list<list<array{timestamp: int, message: string}>>
+     * @template T of array{timestamp: int, message: string}
+     *
+     * @param  list<T>  $events
+     * @return list<list<T>>
      */
     public static function batches(array $events): array
     {

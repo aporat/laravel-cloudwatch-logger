@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Aporat\CloudWatchLogger;
 
+use Aporat\CloudWatchLogger\Console\CloudWatchTestCommand;
 use Aporat\CloudWatchLogger\Support\CloudWatchFlusher;
 use Illuminate\Contracts\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Container\Container;
@@ -68,6 +69,7 @@ class CloudWatchLoggerServiceProvider extends ServiceProvider
     {
         if ($this->app->runningInConsole()) {
             $this->publishes([self::CONFIG_PATH => config_path('cloudwatch-logger.php')], 'config');
+            $this->commands([CloudWatchTestCommand::class]);
         }
 
         $this->registerFlushListeners();

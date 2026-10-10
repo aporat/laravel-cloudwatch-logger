@@ -40,6 +40,14 @@ final class FakeCloudWatchLogs
     /** @var array<string, true> */
     public array $streams = [];
 
+    /** @var array<string, int> Retention in days, by log group. */
+    public array $retention = [];
+
+    /** @var array<string, array<string, string>> Tags, by log group. */
+    public array $tags = [];
+
+    public const string ARN_PREFIX = 'arn:aws:logs:us-east-1:123456789012:log-group:';
+
     /** @var (Closure(string, array<string, mixed>): (Throwable|Result|null))|null */
     public ?Closure $failWith = null;
 
@@ -118,14 +126,21 @@ final class FakeCloudWatchLogs
 
         $result = match ($name) {
             'DescribeLogGroups' => new Result(['logGroups' => array_map(
-                fn (string $g) => ['logGroupName' => $g],
+                fn (string $g) => array_filter([
+                    'logGroupName' => $g,
+                    'arn' => self::ARN_PREFIX.$g.':*',
+                    'logGroupArn' => self::ARN_PREFIX.$g,
+                    'retentionInDays' => $this->retention[$g] ?? null,
+                ], fn ($v) => $v !== null),
                 array_values(array_filter(array_keys($this->groups), fn (string $g) => str_starts_with($g, (string) ($args['logGroupNamePrefix'] ?? ''))))
             )]),
             'DescribeLogStreams' => new Result(['logStreams' => array_map(
                 fn (string $s) => ['logStreamName' => substr($s, strlen($args['logGroupName']) + 1)],
                 array_values(array_filter(array_keys($this->streams), fn (string $s) => str_starts_with($s, $args['logGroupName'].'|'.($args['logStreamNamePrefix'] ?? ''))))
             )]),
-            'CreateLogGroup' => $this->create($this->groups, $args['logGroupName'], $name),
+            'CreateLogGroup' => $this->createGroup($args),
+            'PutRetentionPolicy' => $this->setRetention($args),
+            'TagResource' => $this->tag($args),
             'CreateLogStream' => $this->create($this->streams, $args['logGroupName'].'|'.$args['logStreamName'], $name),
             'PutLogEvents' => $this->put($args),
             default => new Result([]),
@@ -136,6 +151,53 @@ final class FakeCloudWatchLogs
         }
 
         return $result;
+    }
+
+    /**
+     * @param  array<string, mixed>  $args
+     */
+    private function createGroup(array $args): Throwable|Result
+    {
+        $result = $this->create($this->groups, $args['logGroupName'], 'CreateLogGroup');
+
+        if ($result instanceof Result && isset($args['tags'])) {
+            $this->tags[$args['logGroupName']] = $args['tags'];
+        }
+
+        return $result;
+    }
+
+    /**
+     * @param  array<string, mixed>  $args
+     */
+    private function setRetention(array $args): Throwable|Result
+    {
+        if (! isset($this->groups[$args['logGroupName']])) {
+            return self::error('ResourceNotFoundException', 'PutRetentionPolicy');
+        }
+
+        $this->retention[$args['logGroupName']] = $args['retentionInDays'];
+
+        return new Result([]);
+    }
+
+    /**
+     * TagResource takes the log group ARN without the trailing ":*".
+     *
+     * @param  array<string, mixed>  $args
+     */
+    private function tag(array $args): Throwable|Result
+    {
+        $arn = (string) $args['resourceArn'];
+        $group = str_starts_with($arn, self::ARN_PREFIX) ? substr($arn, strlen(self::ARN_PREFIX)) : null;
+
+        if ($group === null || str_ends_with($arn, ':*') || ! isset($this->groups[$group])) {
+            return self::error('InvalidParameterException', 'TagResource');
+        }
+
+        $this->tags[$group] = $args['tags'] + ($this->tags[$group] ?? []);
+
+        return new Result([]);
     }
 
     /**
