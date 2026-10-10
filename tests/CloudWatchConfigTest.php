@@ -6,10 +6,13 @@ namespace Aporat\CloudWatchLogger\Tests;
 
 use Aporat\CloudWatchLogger\CloudWatchConfig;
 use Aporat\CloudWatchLogger\Exceptions\IncompleteCloudWatchConfig;
+use Aporat\CloudWatchLogger\Handler\CloudWatchHandler;
+use Aporat\CloudWatchLogger\Tests\Fixtures\CustomCloudWatchHandler;
 use Aws\CloudWatchLogs\CloudWatchLogsClient;
 use Aws\CommandInterface;
 use Aws\Result;
 use GuzzleHttp\Promise\Create;
+use Monolog\Handler\TestHandler;
 use Monolog\Level;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -39,6 +42,86 @@ final class CloudWatchConfigTest extends TestCase
         $this->assertSame(CloudWatchConfig::DEFAULT_CIRCUIT_BREAKER, $config->circuitBreaker);
         $this->assertSame(['connect_timeout' => 1, 'timeout' => 3], $config->aws['http']);
         $this->assertSame(1, $config->aws['retries']);
+        $this->assertFalse($config->enforceGroupSettings);
+        $this->assertSame('Y-m-d', $config->streamDateFormat);
+        $this->assertNull($config->fallbackChannel);
+        $this->assertSame([], $config->formatterWith);
+        $this->assertNull($config->handlerClass);
+        $this->assertSame([], $config->handlerWith);
+    }
+
+    #[Test]
+    public function the_new_v4_options_are_read(): void
+    {
+        $config = CloudWatchConfig::fromArray($this->baseConfig([
+            'enforce_group_settings' => 'true',
+            'stream_date_format' => 'Ymd',
+            'fallback_channel' => 'single',
+            'formatter_with' => ['format' => '%message%'],
+            'handler' => CustomCloudWatchHandler::class,
+            'handler_with' => ['batchSize' => 5],
+        ]), 'qa');
+
+        $this->assertTrue($config->enforceGroupSettings);
+        $this->assertSame('Ymd', $config->streamDateFormat);
+        $this->assertSame('single', $config->fallbackChannel);
+        $this->assertSame(['format' => '%message%'], $config->formatterWith);
+        $this->assertSame(CustomCloudWatchHandler::class, $config->handlerClass);
+        $this->assertSame(['batchSize' => 5], $config->handlerWith);
+        $this->assertSame('qa', $config->environment);
+    }
+
+    #[Test]
+    public function the_base_handler_class_is_the_same_as_no_handler(): void
+    {
+        $config = CloudWatchConfig::fromArray($this->baseConfig(['handler' => CloudWatchHandler::class, 'fallback_channel' => '']));
+
+        $this->assertNull($config->handlerClass);
+        $this->assertNull($config->fallbackChannel);
+    }
+
+    #[Test]
+    public function the_environment_defaults_to_app_env_then_production(): void
+    {
+        $previous = getenv('APP_ENV');
+
+        try {
+            putenv('APP_ENV=local');
+            $this->assertSame('local', CloudWatchConfig::fromArray($this->baseConfig())->environment);
+            putenv('APP_ENV');
+            $this->assertSame('production', CloudWatchConfig::fromArray($this->baseConfig())->environment);
+        } finally {
+            putenv($previous === false ? 'APP_ENV' : "APP_ENV=$previous");
+        }
+    }
+
+    /**
+     * @return iterable<string, array{array<string, mixed>, string}>
+     */
+    public static function invalidV4Options(): iterable
+    {
+        yield 'date format producing a colon' => [['stream' => 'web-{date}', 'stream_date_format' => 'H:i'], "':' and '*' are not allowed"];
+        yield 'env producing a star' => [['stream' => '{env}'], "':' and '*' are not allowed"];
+        yield 'empty date format' => [['stream_date_format' => ' '], "'stream_date_format' must be a non-empty"];
+        yield 'non-array formatter_with' => [['formatter_with' => 'x'], "'formatter_with' must be an array"];
+        yield 'handler not a subclass' => [['handler' => TestHandler::class], "'handler' must be the name of a"];
+        yield 'non-array handler_with' => [['handler_with' => 'x'], "'handler_with' must be an array"];
+        yield 'positional handler_with' => [['handler_with' => [1]], "'handler_with' must be keyed by constructor parameter name"];
+        yield 'non-string fallback' => [['fallback_channel' => ['a']], "'fallback_channel' must be a string"];
+        yield 'too long after expansion' => [['stream' => str_repeat('a', 512).'{hostname}'], 'may not exceed'];
+    }
+
+    /**
+     * @param  array<string, mixed>  $overrides
+     */
+    #[Test]
+    #[DataProvider('invalidV4Options')]
+    public function invalid_v4_options_are_rejected(array $overrides, string $message): void
+    {
+        $this->expectException(IncompleteCloudWatchConfig::class);
+        $this->expectExceptionMessage($message);
+
+        CloudWatchConfig::fromArray($this->baseConfig($overrides), 'a*b');
     }
 
     #[Test]

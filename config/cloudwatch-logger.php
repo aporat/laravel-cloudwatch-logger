@@ -52,19 +52,26 @@ return [
     |
     | 'group'  — the CloudWatch log group. Letters, digits, '_', '-', '/', '.', '#'.
     | 'stream' — the stream within that group. May not contain ':' or '*'.
+    |            Placeholders: {hostname}, {pid}, {env} (resolved when the
+    |            channel is built) and {date} (the UTC date of each event, in
+    |            'stream_date_format'), e.g. 'app-{env}-{hostname}-{date}'.
+    |            With {date}, a long-running worker moves to the next day's
+    |            stream at midnight UTC.
     | 'name'   — the Monolog channel name, used by the %channel% placeholder.
     |
     */
     'group' => env('CLOUDWATCH_LOG_GROUP_NAME', env('APP_NAME', 'laravel').'-'.env('APP_ENV', 'production')),
     'stream' => env('CLOUDWATCH_LOG_STREAM', 'default'),
     'name' => env('CLOUDWATCH_LOG_NAME', env('APP_NAME', 'laravel')),
+    'stream_date_format' => env('CLOUDWATCH_LOG_STREAM_DATE_FORMAT', 'Y-m-d'),
 
     /*
     |--------------------------------------------------------------------------
     | Retention
     |--------------------------------------------------------------------------
     |
-    | Applied only when this package creates the log group. Must be null (never
+    | Applied when this package creates the log group, and to an existing group
+    | when 'enforce_group_settings' is true. Must be null (never
     | expire) or one of the periods CloudWatch accepts: 1, 3, 5, 7, 14, 30, 60,
     | 90, 120, 150, 180, 365, 400, 545, 731, 1096, 1827, 2192, 2557, 2922,
     | 3288, 3653.
@@ -78,12 +85,19 @@ return [
     |--------------------------------------------------------------------------
     |
     | 'formatter' accepts a LineFormatter template string, a FormatterInterface
-    | class name, an instance, or a callable receiving this config array.
+    | class name, 'default', an instance, or a callable receiving this config
+    | array. 'formatter_with' holds constructor arguments for a formatter class,
+    | as in Laravel's own channels, e.g.
+    |     'formatter' => Monolog\Formatter\JsonFormatter::class,
+    |     'formatter_with' => ['includeStacktraces' => true],
+    | 'handler_with' likewise overrides CloudWatchHandler constructor
+    | arguments, and 'handler' may name a CloudWatchHandler subclass.
     |
     */
     'level' => env('CLOUDWATCH_LOG_LEVEL', 'error'),
     'formatter' => env('CLOUDWATCH_LOG_FORMAT', '%channel%: %level_name%: %message% %context% %extra%'),
     'replace_placeholders' => env('CLOUDWATCH_LOG_REPLACE_PLACEHOLDERS', false),
+    'formatter_with' => [],
 
     /*
     |--------------------------------------------------------------------------
@@ -131,10 +145,24 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Existing Groups
+    |--------------------------------------------------------------------------
+    |
+    | When true, 'retention' and 'tags' are also applied to a log group that
+    | already exists (PutRetentionPolicy and TagResource; needs those IAM
+    | permissions). It runs once per process, or once per 'cache_ttl' with a
+    | cache; failures are reported and never stop logging.
+    |
+    */
+    'enforce_group_settings' => env('CLOUDWATCH_LOG_ENFORCE_GROUP_SETTINGS', false),
+
+    /*
+    |--------------------------------------------------------------------------
     | Tags
     |--------------------------------------------------------------------------
     |
-    | Applied only when this package creates the log group.
+    | Applied when this package creates the log group, and to an existing group
+    | when 'enforce_group_settings' is true.
     |
     */
     'tags' => [],
@@ -149,8 +177,14 @@ return [
     |     instead. Set to false to have failed sends throw.
     | 'circuit_breaker'   — seconds to stop sending after a failure. Records
     |     logged meanwhile stay buffered (up to max_buffer_size). 0 disables.
+    | 'fallback_channel'  — another log channel (e.g. 'single' or 'stderr')
+    |     that receives the records CloudWatch could not take: those dropped
+    |     when the buffer overflows, rejected by CloudWatch, or still
+    |     undelivered when the process ends. It must not be a CloudWatch
+    |     channel.
     |
     */
     'suppress_failures' => env('CLOUDWATCH_LOG_SUPPRESS_FAILURES', true),
     'circuit_breaker' => env('CLOUDWATCH_LOG_CIRCUIT_BREAKER', 30),
+    'fallback_channel' => env('CLOUDWATCH_LOG_FALLBACK_CHANNEL'),
 ];

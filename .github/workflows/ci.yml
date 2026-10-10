@@ -9,22 +9,31 @@ on:
 
 jobs:
     php-tests:
-        runs-on: ubuntu-latest
+        runs-on: ${{ matrix.os }}
 
         strategy:
             fail-fast: false
             matrix:
-              php: [8.4, 8.5]
+              php: ['8.3', '8.4', '8.5']
               laravel: [12.*, 13.*]
               os: [ubuntu-latest]
               coverage: [none]
+              dependencies: [highest]
               include:
-                - php: 8.5
+                - php: '8.5'
                   laravel: 13.*
                   os: ubuntu-latest
                   coverage: xdebug
+                  dependencies: highest
+                # The lowest versions composer.json allows, on the lowest PHP.
+                - php: '8.3'
+                  laravel: 12.*
+                  os: ubuntu-latest
+                  coverage: none
+                  dependencies: lowest
 
-        name: 'PHP ${{ matrix.php }} | Laravel ${{ matrix.laravel }} | ${{ matrix.coverage }}'
+        # These names are required status checks: keep them stable.
+        name: "PHP ${{ matrix.php }} | Laravel ${{ matrix.laravel }} | ${{ matrix.dependencies == 'lowest' && 'lowest' || matrix.coverage }}"
 
         steps:
             - name: Checkout Code
@@ -34,23 +43,53 @@ jobs:
               uses: shivammathur/setup-php@v2
               with:
                   php-version: ${{ matrix.php }}
-                  extensions: mbstring, json, openssl
+                  extensions: mbstring, openssl
                   ini-values: memory_limit=-1
                   tools: composer:v2
                   coverage: ${{ matrix.coverage }}
 
-            - name: Cache Composer dependencies
+            - name: Get Composer cache directory
+              id: composer-cache
+              run: echo "dir=$(composer config cache-files-dir)" >> "$GITHUB_OUTPUT"
+
+            - name: Cache Composer downloads
               uses: actions/cache@v6
               with:
-                  path: vendor
-                  key: ${{ runner.os }}-${{ matrix.php }}-composer-${{ hashFiles('**/composer.lock') }}
+                  path: ${{ steps.composer-cache.outputs.dir }}
+                  key: ${{ runner.os }}-php${{ matrix.php }}-laravel${{ matrix.laravel }}-${{ matrix.dependencies }}-${{ hashFiles('composer.json') }}
                   restore-keys: |
-                      ${{ runner.os }}-${{ matrix.php }}-composer-
+                      ${{ runner.os }}-php${{ matrix.php }}-laravel${{ matrix.laravel }}-${{ matrix.dependencies }}-
 
-            - name: Install Dependencies
-              uses: ramsey/composer-install@v4
-              with:
-                  dependency-versions: 'laravel/framework:${{ matrix.laravel }}'
+            - name: Install Laravel ${{ matrix.laravel }}
+              env:
+                  LARAVEL: ${{ matrix.laravel }}
+                  DEPENDENCIES: ${{ matrix.dependencies }}
+              run: |
+                  case "$LARAVEL" in
+                    12.*) TESTBENCH='^10.0' ;;
+                    13.*) TESTBENCH='^11.0' ;;
+                    *) echo "Unknown Laravel version $LARAVEL"; exit 1 ;;
+                  esac
+                  composer require "illuminate/contracts:$LARAVEL" "illuminate/log:$LARAVEL" "illuminate/support:$LARAVEL" --no-update --no-interaction
+                  composer require --dev "orchestra/testbench:$TESTBENCH" --no-update --no-interaction
+                  if [ "$DEPENDENCIES" = "lowest" ]; then FLAGS="--prefer-lowest --prefer-stable"; else FLAGS=""; fi
+                  composer update $FLAGS --prefer-dist --no-interaction --no-progress
+
+            - name: Show installed versions
+              env:
+                  LARAVEL: ${{ matrix.laravel }}
+              run: |
+                  php -v | head -n 1
+                  php -r 'require "vendor/autoload.php"; foreach (["laravel/framework", "orchestra/testbench", "phpunit/phpunit", "aws/aws-sdk-php", "monolog/monolog", "psr/cache", "phpstan/phpstan", "laravel/pint"] as $p) { printf("%-22s %s\n", $p, Composer\InstalledVersions::getPrettyVersion($p)); }'
+                  installed=$(php -r 'require "vendor/autoload.php"; echo ltrim(Composer\InstalledVersions::getPrettyVersion("laravel/framework"), "v");')
+                  case "$installed" in
+                    "${LARAVEL%.\*}".*) echo "OK: Laravel $installed matches $LARAVEL" ;;
+                    *) echo "::error::Expected Laravel $LARAVEL but installed $installed"; exit 1 ;;
+                  esac
+
+            - name: Lint (pint --test, phpstan)
+              if: matrix.coverage == 'none' && matrix.dependencies == 'highest'
+              run: composer lint
 
             - name: Execute tests
               if: matrix.coverage == 'none'
@@ -65,11 +104,16 @@ jobs:
               uses: codecov/codecov-action@v7
               with:
                   token: ${{ secrets.CODECOV_TOKEN }}
+                  files: coverage.xml
+                  disable_search: true
                   fail_ci_if_error: true
 
             - name: Upload Test Results to Codecov
-              if: matrix.coverage == 'xdebug'
-              uses: codecov/test-results-action@v1
+              if: matrix.coverage == 'xdebug' && !cancelled()
+              uses: codecov/codecov-action@v7
               with:
                   token: ${{ secrets.CODECOV_TOKEN }}
+                  report_type: test_results
+                  files: junit.xml
+                  disable_search: true
                   fail_ci_if_error: true

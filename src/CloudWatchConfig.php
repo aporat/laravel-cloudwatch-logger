@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Aporat\CloudWatchLogger;
 
 use Aporat\CloudWatchLogger\Exceptions\IncompleteCloudWatchConfig;
+use Aporat\CloudWatchLogger\Handler\CloudWatchHandler;
 use Aws\Credentials\CredentialsInterface;
 use Monolog\Level;
 
@@ -77,6 +78,11 @@ final readonly class CloudWatchConfig
     public const int DEFAULT_RETRIES = 1;
 
     /**
+     * Default PHP date() format for the {date} stream placeholder (UTC).
+     */
+    public const string DEFAULT_STREAM_DATE_FORMAT = 'Y-m-d';
+
+    /**
      * Maximum length of a log group or log stream name.
      */
     private const int MAX_NAME_LENGTH = 512;
@@ -97,6 +103,9 @@ final readonly class CloudWatchConfig
      * @param  array<string, string>  $tags  Tags applied when the log group is created.
      * @param  mixed  $cache  Raw PSR-6 cache setting; resolved by the factory.
      * @param  mixed  $formatter  Raw formatter setting; resolved by the factory.
+     * @param  array<array-key, mixed>  $formatterWith  Constructor arguments for a formatter class.
+     * @param  class-string<CloudWatchHandler>|null  $handlerClass  Optional CloudWatchHandler subclass.
+     * @param  array<string, mixed>  $handlerWith  Named handler constructor arguments overriding the computed ones.
      * @param  array<string, mixed>  $originalConfig  The unmodified channel config.
      */
     private function __construct(
@@ -120,6 +129,13 @@ final readonly class CloudWatchConfig
         public bool $suppressFailures,
         public bool $replacePlaceholders,
         public mixed $formatter,
+        public array $formatterWith,
+        public ?string $handlerClass,
+        public array $handlerWith,
+        public bool $enforceGroupSettings,
+        public string $streamDateFormat,
+        public string $environment,
+        public ?string $fallbackChannel,
         public array $originalConfig,
     ) {}
 
@@ -130,11 +146,13 @@ final readonly class CloudWatchConfig
      *
      * @throws IncompleteCloudWatchConfig
      */
-    public static function fromArray(array $config): self
+    public static function fromArray(array $config, ?string $environment = null): self
     {
+        $environment ??= self::defaultEnvironment();
+        $streamDateFormat = self::streamDateFormat($config);
         $aws = self::aws($config);
         $group = self::groupName($config);
-        $stream = self::streamName($config);
+        $stream = self::streamName($config, $streamDateFormat, $environment);
         $name = self::requiredString($config, 'name', 'logger name');
         $retention = self::retention($config);
         $batchSize = self::batchSize($config);
@@ -160,6 +178,13 @@ final readonly class CloudWatchConfig
             suppressFailures: self::bool($config, 'suppress_failures', true),
             replacePlaceholders: self::bool($config, 'replace_placeholders', false),
             formatter: $config['formatter'] ?? null,
+            formatterWith: self::formatterWith($config),
+            handlerClass: self::handlerClass($config),
+            handlerWith: self::handlerWith($config),
+            enforceGroupSettings: self::bool($config, 'enforce_group_settings', false),
+            streamDateFormat: $streamDateFormat,
+            environment: $environment,
+            fallbackChannel: self::optionalString($config, 'fallback_channel'),
             originalConfig: $config,
         );
     }
@@ -264,25 +289,144 @@ final readonly class CloudWatchConfig
     }
 
     /**
-     * Validate the log stream name against CloudWatch's naming rules.
+     * Validate the log stream name against CloudWatch's naming rules, after
+     * expanding the {hostname}, {pid}, {env} and {date} placeholders the
+     * handler supports.
      *
      * @param  array<string, mixed>  $config
      *
      * @throws IncompleteCloudWatchConfig
      */
-    private static function streamName(array $config): string
+    private static function streamName(array $config, string $dateFormat, string $environment): string
     {
         $stream = self::requiredString($config, 'stream', 'log stream name');
 
-        if (mb_strlen($stream) > self::MAX_NAME_LENGTH) {
+        $expanded = str_replace(
+            '{date}',
+            gmdate($dateFormat),
+            CloudWatchHandler::resolveStaticPlaceholders($stream, ['env' => $environment])
+        );
+
+        if (mb_strlen($expanded) > self::MAX_NAME_LENGTH) {
             throw new IncompleteCloudWatchConfig('CloudWatch log stream name may not exceed '.self::MAX_NAME_LENGTH.' characters.');
         }
 
-        if (str_contains($stream, ':') || str_contains($stream, '*')) {
-            throw new IncompleteCloudWatchConfig("Invalid CloudWatch log stream name '$stream': ':' and '*' are not allowed.");
+        if (str_contains($expanded, ':') || str_contains($expanded, '*')) {
+            throw new IncompleteCloudWatchConfig("Invalid CloudWatch log stream name '$expanded': ':' and '*' are not allowed.");
         }
 
         return $stream;
+    }
+
+    /**
+     * @param  array<string, mixed>  $config
+     *
+     * @throws IncompleteCloudWatchConfig
+     */
+    private static function streamDateFormat(array $config): string
+    {
+        $format = $config['stream_date_format'] ?? self::DEFAULT_STREAM_DATE_FORMAT;
+
+        if (! is_string($format) || trim($format) === '') {
+            throw new IncompleteCloudWatchConfig("CloudWatch 'stream_date_format' must be a non-empty date() format.");
+        }
+
+        return $format;
+    }
+
+    /**
+     * The value of {env}: Laravel's app.env when available.
+     */
+    private static function defaultEnvironment(): string
+    {
+        $env = getenv('APP_ENV');
+
+        return is_string($env) && $env !== '' ? $env : 'production';
+    }
+
+    /**
+     * @param  array<string, mixed>  $config
+     * @return array<array-key, mixed>
+     *
+     * @throws IncompleteCloudWatchConfig
+     */
+    private static function formatterWith(array $config): array
+    {
+        $with = $config['formatter_with'] ?? [];
+
+        if (! is_array($with)) {
+            throw new IncompleteCloudWatchConfig("CloudWatch 'formatter_with' must be an array of constructor arguments.");
+        }
+
+        return $with;
+    }
+
+    /**
+     * @param  array<string, mixed>  $config
+     * @return class-string<CloudWatchHandler>|null
+     *
+     * @throws IncompleteCloudWatchConfig
+     */
+    private static function handlerClass(array $config): ?string
+    {
+        $class = $config['handler'] ?? null;
+
+        if ($class === null || $class === CloudWatchHandler::class) {
+            return null;
+        }
+
+        if (! is_string($class) || ! is_a($class, CloudWatchHandler::class, true)) {
+            throw new IncompleteCloudWatchConfig("CloudWatch 'handler' must be the name of a ".CloudWatchHandler::class.' subclass.');
+        }
+
+        return $class;
+    }
+
+    /**
+     * @param  array<string, mixed>  $config
+     * @return array<string, mixed>
+     *
+     * @throws IncompleteCloudWatchConfig
+     */
+    private static function handlerWith(array $config): array
+    {
+        $with = $config['handler_with'] ?? [];
+
+        if (! is_array($with)) {
+            throw new IncompleteCloudWatchConfig("CloudWatch 'handler_with' must be an array of named handler arguments.");
+        }
+
+        $validated = [];
+
+        foreach ($with as $key => $value) {
+            if (! is_string($key)) {
+                throw new IncompleteCloudWatchConfig("CloudWatch 'handler_with' must be keyed by constructor parameter name.");
+            }
+
+            $validated[$key] = $value;
+        }
+
+        return $validated;
+    }
+
+    /**
+     * @param  array<string, mixed>  $config
+     *
+     * @throws IncompleteCloudWatchConfig
+     */
+    private static function optionalString(array $config, string $key): ?string
+    {
+        $value = $config[$key] ?? null;
+
+        if ($value === null || $value === '' || $value === false) {
+            return null;
+        }
+
+        if (! is_string($value)) {
+            throw new IncompleteCloudWatchConfig("CloudWatch '$key' must be a string.");
+        }
+
+        return $value;
     }
 
     /**
