@@ -6,16 +6,14 @@ namespace Aporat\CloudWatchLogger;
 
 use Aporat\CloudWatchLogger\Cache\LaravelCacheItemPool;
 use Aporat\CloudWatchLogger\Exceptions\IncompleteCloudWatchConfig;
+use Aporat\CloudWatchLogger\Handler\CloudWatchHandler;
 use Aws\CloudWatchLogs\CloudWatchLogsClient;
 use Illuminate\Contracts\Cache\Factory as CacheFactory;
 use Illuminate\Contracts\Container\Container;
 use Monolog\Formatter\FormatterInterface;
 use Monolog\Formatter\LineFormatter;
-use Monolog\Handler\HandlerInterface;
-use Monolog\Handler\WhatFailureGroupHandler;
 use Monolog\Logger;
 use Monolog\Processor\PsrLogMessageProcessor;
-use PhpNexus\Cwh\Handler\CloudWatch;
 use Psr\Cache\CacheItemPoolInterface;
 use Throwable;
 
@@ -62,7 +60,7 @@ final class CloudWatchLoggerFactory
         $handler->setFormatter($this->resolveFormatter($resolved));
 
         $logger = new Logger($resolved->name);
-        $logger->pushHandler($this->wrapHandler($handler, $resolved));
+        $logger->pushHandler($handler);
 
         if ($resolved->replacePlaceholders) {
             $logger->pushProcessor(new PsrLogMessageProcessor);
@@ -84,10 +82,10 @@ final class CloudWatchLoggerFactory
      *
      * @throws IncompleteCloudWatchConfig
      */
-    private function createHandler(CloudWatchConfig $config): CloudWatch
+    private function createHandler(CloudWatchConfig $config): CloudWatchHandler
     {
         try {
-            return new CloudWatch(
+            return new CloudWatchHandler(
                 client: $this->createClient($config),
                 group: $config->group,
                 stream: $config->stream,
@@ -101,23 +99,16 @@ final class CloudWatchLoggerFactory
                 rpsLimit: $config->rpsLimit,
                 cacheItemPool: $this->resolveCachePool($config),
                 cacheItemTtl: $config->cacheTtl,
+                maxBufferSize: $config->maxBufferSize,
+                flushInterval: $config->flushInterval,
+                circuitBreakerSeconds: $config->circuitBreaker,
+                suppressFailures: $config->suppressFailures,
             );
         } catch (IncompleteCloudWatchConfig $e) {
             throw $e;
         } catch (Throwable $e) {
             throw new IncompleteCloudWatchConfig('Unable to build the CloudWatch log handler: '.$e->getMessage(), previous: $e);
         }
-    }
-
-    /**
-     * Optionally wrap the handler so that a CloudWatch outage degrades into a
-     * dropped log line rather than an exception thrown from the caller's
-     * `Log::info()` — which, in a request path that logs its own failures,
-     * turns a handled error into a 500.
-     */
-    private function wrapHandler(HandlerInterface $handler, CloudWatchConfig $config): HandlerInterface
-    {
-        return $config->suppressFailures ? new WhatFailureGroupHandler([$handler]) : $handler;
     }
 
     /**
@@ -138,7 +129,7 @@ final class CloudWatchLoggerFactory
             return null;
         }
 
-        // The handler refuses a pool it can never populate.
+        // Nothing would ever be written to the pool.
         if (! $config->createGroup && ! $config->createStream) {
             return null;
         }
