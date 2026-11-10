@@ -115,8 +115,10 @@ return [
     | 'rps_limit'       — max PutLogEvents calls per second from one process;
     |                     0 disables.
     |
-    | The buffer is also flushed when the process ends, after every queue job
-    | and after every Octane request/task/tick.
+    | The buffer is also flushed after every request (once the response is
+    | sent) and Artisan command, after every queue job, after every Octane
+    | request/task/tick and when the process ends, so there is no need for a
+    | small batch_size: 1 puts a PutLogEvents call inside every log write.
     |
     */
     'batch_size' => env('CLOUDWATCH_LOG_BATCH_SIZE', 10000),
