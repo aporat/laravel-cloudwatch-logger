@@ -76,12 +76,22 @@ class CloudWatchLoggerServiceProvider extends ServiceProvider
     }
 
     /**
-     * Flush CloudWatch handlers at the end of each queue job and Octane
-     * operation. Those processes outlive the unit of work, so without this a
-     * partially filled buffer would wait for the next batch to fill.
+     * Flush CloudWatch handlers at the end of each request, queue job and
+     * Octane operation. Those processes outlive the unit of work, so without
+     * this a partially filled buffer would wait for the next batch to fill.
      */
     protected function registerFlushListeners(): void
     {
+        $app = $this->app;
+
+        // Terminating callbacks run after the response is sent: under PHP-FPM
+        // Symfony's Response::send() calls fastcgi_finish_request() first, so
+        // the client never waits on PutLogEvents. Artisan commands terminate
+        // the same way, so a command's lines go out when it returns.
+        $app->terminating(static function () use ($app): void {
+            CloudWatchFlusher::flush($app);
+        });
+
         if (! $this->app->bound('events')) {
             return;
         }
@@ -91,8 +101,6 @@ class CloudWatchLoggerServiceProvider extends ServiceProvider
         if (! $events instanceof Dispatcher) {
             return;
         }
-
-        $app = $this->app;
 
         $events->listen(self::QUEUE_FLUSH_EVENTS, static function () use ($app): void {
             CloudWatchFlusher::flush($app);

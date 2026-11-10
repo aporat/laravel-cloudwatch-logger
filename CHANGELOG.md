@@ -4,7 +4,17 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
-## [Unreleased] — 4.0.0
+## [Unreleased]
+
+### Added
+
+- Buffers are flushed when the application terminates: after every HTTP
+  request (under PHP-FPM, after the response has been sent) and every Artisan
+  command. Before, a PHP-FPM worker kept a partial batch until a later write
+  passed `flush_interval` or the worker exited, so apps set `batch_size` to 1
+  and paid a `PutLogEvents` round trip inside every request that logged.
+
+## [4.0.0]
 
 See [Upgrading from 3.x](README.md#upgrading-from-3x).
 

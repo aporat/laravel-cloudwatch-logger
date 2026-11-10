@@ -153,6 +153,25 @@ final class EndToEndTest extends TestCase
     }
 
     /**
+     * PHP-FPM workers outlive the request, so a buffered line used to wait
+     * for the next write past flush_interval (or the worker's exit), and
+     * apps fell back to batch_size 1: a PutLogEvents call inside every
+     * request that logged.
+     */
+    #[Test]
+    public function terminating_the_application_flushes_the_buffer(): void
+    {
+        Log::error('from a request');
+        Log::warning('and another');
+        $this->assertSame([], $this->aws->delivered(), 'Nothing is sent while the request runs.');
+
+        $this->app->terminate();
+
+        $this->assertSame(['ERROR: from a request ', 'WARNING: and another '], $this->aws->delivered());
+        $this->assertCount(1, $this->aws->calls('PutLogEvents'), 'One call for the whole request.');
+    }
+
+    /**
      * @return iterable<string, array{callable(): object}>
      */
     public static function queueEvents(): iterable

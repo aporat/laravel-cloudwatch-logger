@@ -30,8 +30,9 @@ A Laravel logging driver for AWS CloudWatch Logs.
 - Failures don't escape: by default a CloudWatch outage is reported with
   `error_log()` instead of throwing out of `Log::…()`, and a circuit breaker
   stops a dead endpoint from slowing every request.
-- Buffered events are flushed at shutdown, after every queue job, and after
-  every Octane request, task and tick.
+- Buffered events are flushed after every HTTP request (once the response has
+  been sent), after every queue job and Artisan command, after every Octane
+  request, task and tick, and at shutdown.
 - Configuration is validated up front: a bad value fails with a message naming
   the key, not with an opaque AWS error on the first log line.
 
@@ -158,6 +159,9 @@ happens:
 - the buffer reaches `batch_size` events;
 - a record is written and the oldest buffered event is older than
   `flush_interval` seconds;
+- the application terminates: after an HTTP request (under PHP-FPM this runs
+  after `fastcgi_finish_request()`, so the client never waits on CloudWatch)
+  or an Artisan command;
 - a queue job finishes (`JobProcessed`, `JobFailed`), the worker loops
   (`Looping`) or stops (`WorkerStopping`);
 - an Octane request, task or tick ends (`RequestTerminated`,
